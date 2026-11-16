@@ -18,7 +18,7 @@ PulseTrack é um web app simples, offline-first e acessível, criado para ajudar
 
 - Pessoas com TDAH e dificuldades de controle de impulsos
 - Quem lida com compulsões (alimentação, gastos, validação, hiperestimulação digital, sexual)
-- Pessoas em investigação de bipolaridade ou que apresentam oscilações de humor
+- Pessoas que apresentam oscilações de humor
 - Qualquer pessoa que queira observar padrões de comportamento de forma estruturada e sem julgamento
 
 ### Filosofia do projeto
