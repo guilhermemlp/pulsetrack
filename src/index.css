@@ -1,0 +1,184 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   PulseTrack — Sistema de Tokens Visuais (Claro, Escuro e Alto Contraste)
+   Projetado para conforto sensorial, legibilidade WCAG AA+ e calma emocional.
+   ========================================================================== */
+
+:root {
+  --bg-canvas: #F7F6F3;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #EFECE6;
+  --bg-elevated: #FAF9F6;
+
+  --text-primary: #1D2730;
+  --text-secondary: #495866;
+  --text-muted: #5F6E7C;
+
+  --border-hairline: #DDD8CE;
+  --border-strong: #BFC7CE;
+
+  /* Paleta terapêutica: Azul-petróleo calmo, Verde-sage e Coral acolhedor */
+  --color-primary: #3B6F8F;
+  --color-primary-strong: #2C5873;
+  --color-primary-soft: #E8F0F5;
+  --color-primary-ink: #FFFFFF;
+
+  --color-secondary: #5B8260;
+  --color-secondary-soft: #EAF2EB;
+  --color-secondary-ink: #27472B;
+
+  --color-accent: #C85E42;
+  --color-accent-soft: #FBEDE9;
+  --color-accent-ink: #FFFFFF;
+
+  --focus-ring: #2C5873;
+  --shadow-soft: 0 1px 3px rgba(29, 39, 48, 0.05), 0 4px 14px rgba(29, 39, 48, 0.03);
+}
+
+.dark {
+  --bg-canvas: #1E2A32;
+  --bg-surface: #25343E;
+  --bg-subtle: #2D3E4A;
+  --bg-elevated: #2A3A45;
+
+  --text-primary: #EEF2F5;
+  --text-secondary: #C2CFD8;
+  --text-muted: #9DB0BD;
+
+  --border-hairline: #384B58;
+  --border-strong: #4D6575;
+
+  --color-primary: #6DA4C4;
+  --color-primary-strong: #85B7D4;
+  --color-primary-soft: #263E4D;
+  --color-primary-ink: #111A20;
+
+  --color-secondary: #86AD8B;
+  --color-secondary-soft: #283D2D;
+  --color-secondary-ink: #C5DFC8;
+
+  --color-accent: #E58C74;
+  --color-accent-soft: #432E2A;
+  --color-accent-ink: #1B1311;
+
+  --focus-ring: #90C3E0;
+  --shadow-soft: 0 2px 6px rgba(10, 16, 20, 0.25);
+}
+
+.high-contrast {
+  --bg-canvas: #FFFFFF;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F2F4F7;
+  --bg-elevated: #FFFFFF;
+
+  --text-primary: #0B1116;
+  --text-secondary: #1A242D;
+  --text-muted: #2B3742;
+
+  --border-hairline: #1A242D;
+  --border-strong: #0B1116;
+
+  --color-primary: #1B4965;
+  --color-primary-strong: #103247;
+  --color-primary-soft: #E3EFF7;
+  --color-primary-ink: #FFFFFF;
+
+  --color-secondary: #1F5132;
+  --color-secondary-soft: #E4F2E8;
+  --color-secondary-ink: #0E2B19;
+
+  --color-accent: #A63A1E;
+  --color-accent-soft: #FCEAE5;
+  --color-accent-ink: #FFFFFF;
+
+  --focus-ring: #0B1116;
+  --shadow-soft: none;
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    min-height: 100vh;
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    text-wrap: balance;
+  }
+
+  .font-mono, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Anel de foco claro e visível para navegação por teclado */
+  *:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Estilo acessível para controles deslizantes (sliders 0-10) */
+input[type="range"].pt-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+}
+
+input[type="range"].pt-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary-strong);
+  border: 3px solid var(--bg-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+input[type="range"].pt-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary-strong);
+  border: 3px solid var(--bg-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+/* Redução de movimento obrigatória (sistema ou escolha do usuário) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
