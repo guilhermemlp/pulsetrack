@@ -9,6 +9,7 @@ import {
   StateDuration,
   UserPreferences,
 } from '../types/pulsetrack';
+import { toLocalIsoDate } from './analytics';
 
 const KEYS = {
   ENTRIES: 'pulsetrack_entries_v1',
@@ -28,7 +29,7 @@ export function normalizeEntry(raw: Partial<PulseEntry>): PulseEntry {
       (hasBehaviors || (raw.behaviorOtherText && raw.behaviorOtherText.trim().length > 0)
         ? EntryType.EPISODE
         : EntryType.DAILY_CHECKIN),
-    date: raw.date ?? new Date().toISOString().slice(0, 10),
+    date: raw.date ?? toLocalIsoDate(),
     time: raw.time ?? '12:00',
     createdAt: raw.createdAt ?? new Date().toISOString(),
     moods: Array.isArray(raw.moods) ? raw.moods : [],

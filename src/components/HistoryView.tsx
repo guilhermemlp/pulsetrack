@@ -12,13 +12,12 @@ import {
   AppTab,
   AwarenessType,
   BehaviorCategory,
-  EntryType,
   FunctionalImpactLevel,
   PulseEntry,
   ReducedSleepNeed,
   ResistanceResult,
 } from '../types/pulsetrack';
-import { formatLongDate } from '../utils/analytics';
+import { formatLongDate, isEpisodeEntry } from '../utils/analytics';
 
 interface HistoryViewProps {
   entries: PulseEntry[];
@@ -47,7 +46,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return [...entries]
       .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
       .filter((entry) => {
-        const isEpisode = entry.entryType === EntryType.EPISODE || entry.behaviors.length > 0;
+        const isEpisode = isEpisodeEntry(entry);
         if (typeFilter === 'episodes' && !isEpisode) return false;
         if (typeFilter === 'checkins' && isEpisode) return false;
 
@@ -153,7 +152,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 type="button"
                 onClick={() => setTypeFilter(t.id)}
                 aria-pressed={active}
-                className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap cursor-pointer"
+                className="min-h-[48px] px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap cursor-pointer"
                 style={{
                   backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
                   color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
@@ -228,7 +227,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       ) : (
         <div className="space-y-4">
           {sortedAndFiltered.map((entry) => {
-            const isEpisode = entry.entryType === EntryType.EPISODE || entry.behaviors.length > 0;
+            const isEpisode = isEpisodeEntry(entry);
             const activationLabels = entry.activationSignals
               .map((id) => ACTIVATION_SIGNAL_OPTIONS.find((o) => o.id === id)?.label ?? id)
               .join(' · ');
@@ -295,7 +294,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onEditEntry(entry)}
-                      className="min-h-[44px] px-3.5 py-2 rounded-xl border text-sm font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                      className="min-h-[48px] px-3.5 py-2 rounded-xl border text-sm font-medium inline-flex items-center gap-1.5 cursor-pointer"
                       style={{
                         backgroundColor: 'var(--bg-elevated)',
                         borderColor: 'var(--border-hairline)',
@@ -314,7 +313,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                             onDeleteEntry(entry.id);
                             setConfirmDeleteId(null);
                           }}
-                          className="min-h-[44px] px-3.5 py-2 rounded-xl text-sm font-semibold cursor-pointer"
+                          className="min-h-[48px] px-3.5 py-2 rounded-xl text-sm font-semibold cursor-pointer"
                           style={{
                             backgroundColor: 'var(--color-accent)',
                             color: 'var(--color-accent-ink)',
@@ -325,7 +324,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(null)}
-                          className="min-h-[44px] px-3 py-2 rounded-xl border text-sm cursor-pointer"
+                          className="min-h-[48px] px-3.5 py-2 rounded-xl border text-sm cursor-pointer"
                           style={{
                             backgroundColor: 'var(--bg-elevated)',
                             borderColor: 'var(--border-hairline)',
@@ -340,7 +339,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         type="button"
                         onClick={() => setConfirmDeleteId(entry.id)}
                         aria-label={`Excluir registro de ${formatLongDate(entry.date)}`}
-                        className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl border text-sm inline-flex items-center justify-center cursor-pointer"
+                        className="min-h-[48px] min-w-[48px] px-3 py-2 rounded-xl border text-sm inline-flex items-center justify-center cursor-pointer"
                         style={{
                           backgroundColor: 'var(--bg-elevated)',
                           borderColor: 'var(--border-hairline)',

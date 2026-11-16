@@ -15,7 +15,7 @@ import {
   PulseEntry,
   ResistanceResult,
 } from '../types/pulsetrack';
-import { formatLongDate } from './analytics';
+import { formatLongDate, isEpisodeEntry, toLocalIsoDate } from './analytics';
 
 function pdfSafe(text: string): string {
   return text
@@ -116,7 +116,7 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
   ];
 
   const rows = entries.map((entry) => {
-    const isEp = entry.entryType === EntryType.EPISODE || entry.behaviors.length > 0;
+    const isEp = isEpisodeEntry(entry);
     const behaviorsText = entry.behaviors
       .map((b) => `${b.categoryName}: ${b.itemLabel}`)
       .join(' | ');
@@ -160,7 +160,7 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = toLocalIsoDate();
   link.href = url;
   link.download = `PulseTrack_Longitudinal_${period === 'all' ? 'Completo' : `${period}d`}_${dateStamp}.csv`;
   document.body.appendChild(link);
@@ -367,7 +367,7 @@ export function exportClinicalReportPdf(
   const recentEntries = entries.slice(0, 14);
   for (const entry of recentEntries) {
     ensureSpace(22);
-    const isEp = entry.entryType === EntryType.EPISODE || entry.behaviors.length > 0;
+    const isEp = isEpisodeEntry(entry);
     const typeLabel = isEp ? 'EPISÓDIO' : 'CHECK-IN DIÁRIO';
     addParagraph(
       `[${typeLabel}] ${formatLongDate(entry.date)} ${entry.time} | Emocional: ${getMoodLabels(
@@ -438,6 +438,6 @@ export function exportClinicalReportPdf(
     );
   }
 
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = toLocalIsoDate();
   doc.save(`PulseTrack_Relatorio_Longitudinal_${dateStamp}.pdf`);
 }

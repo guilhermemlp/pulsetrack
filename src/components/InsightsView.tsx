@@ -83,7 +83,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
                 type="button"
                 onClick={() => onChangePeriod(p)}
                 aria-pressed={active}
-                className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[48px] px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
                   backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
                   color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',

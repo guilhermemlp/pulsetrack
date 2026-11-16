@@ -126,7 +126,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   type="button"
                   onClick={() => onChangePeriod(p)}
                   aria-pressed={active}
-                  className="min-h-[44px] px-3.5 py-1.5 rounded-xl border text-sm font-medium cursor-pointer"
+                  className="min-h-[48px] px-3.5 py-1.5 rounded-xl border text-sm font-medium cursor-pointer"
                   style={{
                     backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
                     borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',

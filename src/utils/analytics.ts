@@ -25,6 +25,16 @@ import {
   StateDuration,
 } from '../types/pulsetrack';
 
+/**
+ * Retorna YYYY-MM-DD no fuso horário local (evita deslocamento de dia após 21h no Brasil em UTC).
+ */
+export function toLocalIsoDate(date: Date = new Date()): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function formatShortDate(isoDate: string): string {
   const parts = isoDate.split('-');
   if (parts.length !== 3) return isoDate;
@@ -40,7 +50,7 @@ export function formatLongDate(isoDate: string): string {
 function addDays(isoDate: string, delta: number): string {
   const d = new Date(`${isoDate}T12:00:00`);
   d.setDate(d.getDate() + delta);
-  return d.toISOString().slice(0, 10);
+  return toLocalIsoDate(d);
 }
 
 export function getPeriodDays(period: PeriodFilter, entries: PulseEntry[]): number {
@@ -62,7 +72,7 @@ export function filterEntriesByPeriod(entries: PulseEntry[], period: PeriodFilte
   const cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
   cutoff.setDate(cutoff.getDate() - (days - 1));
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const cutoffStr = toLocalIsoDate(cutoff);
 
   return entries
     .filter((entry) => entry.date >= cutoffStr)
@@ -82,7 +92,7 @@ function getTopItemLabels(entries: PulseEntry[], limit = 3): string[] {
     .map(([label]) => label);
 }
 
-function isEpisodeEntry(entry: PulseEntry): boolean {
+export function isEpisodeEntry(entry: PulseEntry): boolean {
   return (
     entry.entryType === EntryType.EPISODE ||
     entry.behaviors.length > 0 ||
@@ -252,7 +262,6 @@ function computeCycleAnalysis(allEntries: PulseEntry[], periodEntries: PulseEntr
   }
 
   if (
-    before.avgEnergy !== null &&
     during.avgEnergy !== null &&
     after.avgEnergy !== null &&
     after.sampleDays > 0
@@ -485,7 +494,7 @@ export function computeAnalytics(
   for (let i = timelineLength - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = toLocalIsoDate(d);
     const dayEntries = entries.filter((e) => e.date === iso);
     const dayEpisodes = dayEntries.filter(isEpisodeEntry);
 
@@ -636,7 +645,7 @@ export function computeAnalytics(
   const splitDate = new Date();
   splitDate.setHours(0, 0, 0, 0);
   splitDate.setDate(splitDate.getDate() - (halfDays - 1));
-  const splitStr = splitDate.toISOString().slice(0, 10);
+  const splitStr = toLocalIsoDate(splitDate);
 
   const currentHalf = episodes.filter((e) => e.date >= splitStr);
   const previousHalf = episodes.filter((e) => e.date < splitStr);

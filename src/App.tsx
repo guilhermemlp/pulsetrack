@@ -51,7 +51,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('registrar');
   const [period, setPeriod] = useState<PeriodFilter>('14');
   const [editingEntry, setEditingEntry] = useState<PulseEntry | null>(null);
-  const [focusMode, setFocusMode] = useState<boolean>(false);
+  const [focusMode, setFocusMode] = useState<boolean>(() => preferences.focusModeDefault);
   const [feedbackMessage, setFeedbackMessage] = useState<string>('');
 
   // Sincroniza tema e preferência de redução de movimento no documento HTML
@@ -94,6 +94,7 @@ export default function App() {
 
   const handleNavigate = (tab: AppTab) => {
     setActiveTab(tab);
+    setEditingEntry(null);
     if (tab !== 'registrar') {
       setFocusMode(false);
     }
@@ -275,7 +276,7 @@ export default function App() {
                     type="button"
                     onClick={() => setTheme(t.id)}
                     aria-pressed={active}
-                    className="min-h-[40px] px-3 py-1 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
                     style={{
                       backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-surface)',
                       borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
@@ -293,7 +294,7 @@ export default function App() {
                 type="button"
                 onClick={toggleReduceMotion}
                 aria-pressed={preferences.reduceMotion}
-                className="min-h-[40px] px-3 py-1 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[44px] px-3.5 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
                   backgroundColor: preferences.reduceMotion ? 'var(--color-secondary-soft)' : 'var(--bg-surface)',
                   borderColor: preferences.reduceMotion ? 'var(--color-secondary)' : 'var(--border-hairline)',
@@ -306,7 +307,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => handleNavigate('categorias')}
-                className="md:hidden min-h-[40px] px-3 py-1 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                className="md:hidden min-h-[44px] px-3.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
                   backgroundColor: activeTab === 'categorias' ? 'var(--color-primary-soft)' : 'var(--bg-surface)',
                   borderColor: 'var(--border-hairline)',
@@ -340,7 +341,7 @@ export default function App() {
               type="button"
               onClick={() => setFeedbackMessage('')}
               aria-label="Fechar aviso"
-              className="min-h-[40px] min-w-[40px] rounded-lg flex items-center justify-center cursor-pointer"
+              className="min-h-[48px] min-w-[48px] rounded-lg flex items-center justify-center cursor-pointer"
               style={{ color: 'var(--text-secondary)' }}
             >
               <X className="w-4 h-4" />
@@ -353,6 +354,7 @@ export default function App() {
       <main id="inicio" className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 md:pb-12">
         {activeTab === 'registrar' && (
           <DailyLogForm
+            key={editingEntry?.id ?? 'new'}
             categories={categories}
             editingEntry={editingEntry}
             focusMode={focusMode}
@@ -418,6 +420,18 @@ export default function App() {
             onImportBackup={handleImportBackup}
             onLoadSampleData={handleLoadSampleData}
             onClearAllEntries={handleClearAllEntries}
+            onToggleFocusModeDefault={() => {
+              setPreferences((prev) => {
+                const next = !prev.focusModeDefault;
+                setFocusMode(next);
+                showFeedback(
+                  next
+                    ? 'A aba Registrar iniciará em Modo de Foco por padrão.'
+                    : 'A aba Registrar iniciará com visualização completa por padrão.'
+                );
+                return { ...prev, focusModeDefault: next };
+              });
+            }}
             onFeedback={showFeedback}
           />
         )}

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Download, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { BehaviorCategory, PulseEntry, UserPreferences } from '../types/pulsetrack';
+import { toLocalIsoDate } from '../utils/analytics';
 import { buildBackupJson, parseBackupJson } from '../utils/storage';
 
 interface CategoriesViewProps {
@@ -12,6 +13,7 @@ interface CategoriesViewProps {
   onImportBackup: (entries: PulseEntry[], categories: BehaviorCategory[], prefs?: UserPreferences) => void;
   onLoadSampleData: () => void;
   onClearAllEntries: () => void;
+  onToggleFocusModeDefault: () => void;
   onFeedback: (msg: string) => void;
 }
 
@@ -26,6 +28,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onImportBackup,
   onLoadSampleData,
   onClearAllEntries,
+  onToggleFocusModeDefault,
   onFeedback,
 }) => {
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -139,7 +142,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `PulseTrack_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `PulseTrack_Backup_${toLocalIsoDate()}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -245,7 +248,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 onClick={() => setNewCategoryColor(swatch)}
                 aria-label={`Selecionar cor ${swatch}`}
                 aria-pressed={newCategoryColor === swatch}
-                className="w-11 h-11 rounded-xl border flex items-center justify-center cursor-pointer"
+                className="w-12 h-12 rounded-xl border flex items-center justify-center cursor-pointer"
                 style={{
                   backgroundColor: swatch,
                   borderColor: newCategoryColor === swatch ? 'var(--text-primary)' : 'transparent',
@@ -285,13 +288,22 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   aria-hidden="true"
                 />
                 {editingCatId === cat.id ? (
-                  <div className="flex flex-wrap items-center gap-2 flex-1">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSaveCategoryName(cat.id);
+                    }}
+                    className="flex flex-wrap items-center gap-2 flex-1"
+                  >
                     <input
                       type="text"
                       value={editingCatName}
                       onChange={(e) => setEditingCatName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEditingCatId(null);
+                      }}
                       aria-label="Editar nome da categoria"
-                      className="flex-1 min-w-[180px] min-h-[44px] px-3 rounded-xl border text-base"
+                      className="flex-1 min-w-[180px] min-h-[48px] px-3 rounded-xl border text-base"
                       style={{
                         backgroundColor: 'var(--bg-elevated)',
                         borderColor: 'var(--border-strong)',
@@ -299,9 +311,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       }}
                     />
                     <button
-                      type="button"
-                      onClick={() => handleSaveCategoryName(cat.id)}
-                      className="min-h-[44px] px-4 rounded-xl text-sm font-semibold cursor-pointer"
+                      type="submit"
+                      className="min-h-[48px] px-4 rounded-xl text-sm font-semibold cursor-pointer"
                       style={{ backgroundColor: 'var(--color-primary-strong)', color: 'var(--color-primary-ink)' }}
                     >
                       Salvar
@@ -309,12 +320,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setEditingCatId(null)}
-                      className="min-h-[44px] px-3 rounded-xl border text-sm cursor-pointer"
+                      className="min-h-[48px] px-3.5 rounded-xl border text-sm cursor-pointer"
                       style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                     >
                       Cancelar
                     </button>
-                  </div>
+                  </form>
                 ) : (
                   <h2 className="text-lg font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
                     {cat.name}
@@ -334,7 +345,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     setEditingCatId(cat.id);
                     setEditingCatName(cat.name);
                   }}
-                  className="min-h-[44px] px-3.5 rounded-xl border text-sm font-medium cursor-pointer"
+                  className="min-h-[48px] px-3.5 rounded-xl border text-sm font-medium cursor-pointer"
                   style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-primary)' }}
                 >
                   Renomear
@@ -342,7 +353,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleToggleCategory(cat.id)}
-                  className="min-h-[44px] px-3.5 rounded-xl border text-sm font-medium cursor-pointer"
+                  className="min-h-[48px] px-3.5 rounded-xl border text-sm font-medium cursor-pointer"
                   style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                 >
                   {cat.active ? 'Desativar' : 'Ativar'}
@@ -351,7 +362,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   type="button"
                   onClick={() => handleDeleteCategory(cat.id, cat.name)}
                   aria-label={`Excluir categoria ${cat.name}`}
-                  className="min-h-[44px] min-w-[44px] px-3 rounded-xl border inline-flex items-center justify-center cursor-pointer"
+                  className="min-h-[48px] min-w-[48px] px-3 rounded-xl border inline-flex items-center justify-center cursor-pointer"
                   style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                 >
                   <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -368,13 +379,22 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   style={{ borderColor: 'var(--border-hairline)' }}
                 >
                   {editingItemId === item.id ? (
-                    <div className="flex flex-wrap items-center gap-2 flex-1">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSaveSubItem(cat.id, item.id);
+                      }}
+                      className="flex flex-wrap items-center gap-2 flex-1"
+                    >
                       <input
                         type="text"
                         value={editingItemLabel}
                         onChange={(e) => setEditingItemLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setEditingItemId(null);
+                        }}
                         aria-label="Editar texto do subitem"
-                        className="flex-1 min-w-[200px] min-h-[44px] px-3 rounded-xl border text-base"
+                        className="flex-1 min-w-[200px] min-h-[48px] px-3 rounded-xl border text-base"
                         style={{
                           backgroundColor: 'var(--bg-elevated)',
                           borderColor: 'var(--border-strong)',
@@ -382,9 +402,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                         }}
                       />
                       <button
-                        type="button"
-                        onClick={() => handleSaveSubItem(cat.id, item.id)}
-                        className="min-h-[44px] px-4 rounded-xl text-sm font-semibold cursor-pointer"
+                        type="submit"
+                        className="min-h-[48px] px-4 rounded-xl text-sm font-semibold cursor-pointer"
                         style={{ backgroundColor: 'var(--color-primary-strong)', color: 'var(--color-primary-ink)' }}
                       >
                         Salvar
@@ -392,12 +411,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setEditingItemId(null)}
-                        className="min-h-[44px] px-3 rounded-xl border text-sm cursor-pointer"
+                        className="min-h-[48px] px-3.5 rounded-xl border text-sm cursor-pointer"
                         style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                       >
                         Cancelar
                       </button>
-                    </div>
+                    </form>
                   ) : (
                     <>
                       <span
@@ -416,7 +435,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                             setEditingItemId(item.id);
                             setEditingItemLabel(item.label);
                           }}
-                          className="min-h-[44px] px-3 rounded-lg border text-xs font-medium cursor-pointer"
+                          className="min-h-[48px] px-3.5 rounded-lg border text-xs font-medium cursor-pointer"
                           style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-primary)' }}
                         >
                           Editar
@@ -424,7 +443,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleToggleSubItem(cat.id, item.id)}
-                          className="min-h-[44px] px-3 rounded-lg border text-xs font-medium cursor-pointer"
+                          className="min-h-[48px] px-3.5 rounded-lg border text-xs font-medium cursor-pointer"
                           style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                         >
                           {item.active ? 'Desativar' : 'Ativar'}
@@ -433,7 +452,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                           type="button"
                           onClick={() => handleDeleteSubItem(cat.id, item.id)}
                           aria-label={`Remover ${item.label}`}
-                          className="min-h-[44px] min-w-[44px] rounded-lg border inline-flex items-center justify-center cursor-pointer"
+                          className="min-h-[48px] min-w-[48px] rounded-lg border inline-flex items-center justify-center cursor-pointer"
                           style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                         >
                           <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -446,7 +465,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             </ul>
 
             {/* Adicionar subitem */}
-            <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddSubItem(cat.id);
+              }}
+              className="flex flex-col sm:flex-row gap-2.5 pt-2"
+            >
               <input
                 type="text"
                 value={newSubItemText[cat.id] ?? ''}
@@ -461,8 +486,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 }}
               />
               <button
-                type="button"
-                onClick={() => handleAddSubItem(cat.id)}
+                type="submit"
                 className="min-h-[48px] px-5 rounded-xl border text-sm font-semibold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                 style={{
                   backgroundColor: 'var(--color-primary-soft)',
@@ -473,23 +497,43 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 <span>Adicionar item</span>
               </button>
-            </div>
+            </form>
           </section>
         ))}
       </div>
 
-      {/* Backup e Dados Locais */}
+      {/* Backup, Preferências e Dados Locais */}
       <section
-        className="rounded-2xl border p-6 space-y-4"
+        className="rounded-2xl border p-6 space-y-5"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
       >
         <div>
           <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Cópia de segurança e dados offline
+            Preferências de registro, cópia de segurança e dados offline
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Todos os seus registros ficam apenas no seu navegador (localStorage). Você pode exportar ou restaurar um backup em JSON quando quiser.
           </p>
+        </div>
+
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={onToggleFocusModeDefault}
+            aria-pressed={preferences.focusModeDefault}
+            className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium inline-flex items-center gap-2 cursor-pointer"
+            style={{
+              backgroundColor: preferences.focusModeDefault ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
+              borderColor: preferences.focusModeDefault ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+              color: preferences.focusModeDefault ? 'var(--color-primary-strong)' : 'var(--text-primary)',
+            }}
+          >
+            <span>
+              {preferences.focusModeDefault
+                ? 'Modo de foco padrão ao abrir: Ativado'
+                : 'Iniciar a aba Registrar em Modo de foco por padrão'}
+            </span>
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

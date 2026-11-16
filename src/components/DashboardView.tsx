@@ -111,7 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 type="button"
                 onClick={() => onChangePeriod(opt.value)}
                 aria-pressed={active}
-                className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                className="min-h-[48px] px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer"
                 style={{
                   backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
                   color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
@@ -187,7 +187,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {analytics.avgSleepHours}h
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                Redução da necessidade de sono em {analytics.reducedSleepNeedRate}% dos dias
+                Redução da necessidade de sono em {analytics.reducedSleepNeedCount} registro(s) ({analytics.reducedSleepNeedRate}%)
               </p>
             </div>
 
@@ -304,13 +304,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <div className="flex justify-between gap-2">
                           <dt>Energia média:</dt>
                           <dd className="font-mono tabular-nums font-semibold" style={{ color: 'var(--text-primary)' }}>
-                            {phase.data.avgEnergy}/10
+                            {phase.data.avgEnergy !== null ? `${phase.data.avgEnergy}/10` : '-'}
                           </dd>
                         </div>
                         <div className="flex justify-between gap-2">
                           <dt>Sono médio:</dt>
                           <dd className="font-mono tabular-nums font-semibold" style={{ color: 'var(--text-primary)' }}>
-                            {phase.data.avgSleepHours}h
+                            {phase.data.avgSleepHours !== null ? `${phase.data.avgSleepHours}h` : '-'}
                           </dd>
                         </div>
                         <div className="flex justify-between gap-2">
@@ -372,7 +372,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('insights')}
-                className="min-h-[44px] px-4 py-2 rounded-xl border text-sm font-medium whitespace-nowrap shrink-0 self-start cursor-pointer"
+                className="min-h-[48px] px-4 py-2 rounded-xl border text-sm font-medium whitespace-nowrap shrink-0 self-start cursor-pointer"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-strong)',

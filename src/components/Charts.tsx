@@ -59,9 +59,23 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
               Últimos {analytics.dailyTimeline.length} dias · acompanhe como sono e energia evoluem antes, durante e depois dos episódios
             </p>
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <span>E = Energia (0–10)</span>
-            <span>S = Sono (horas)</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-xs shrink-0"
+                style={{ backgroundColor: 'var(--color-primary)' }}
+                aria-hidden="true"
+              />
+              <span>Energia (0–10)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-xs shrink-0"
+                style={{ backgroundColor: 'var(--color-secondary)' }}
+                aria-hidden="true"
+              />
+              <span>Sono (h)</span>
+            </span>
             <span>Ep = Episódio comportamental</span>
             <span>* = Redução da necessidade de sono</span>
           </div>
