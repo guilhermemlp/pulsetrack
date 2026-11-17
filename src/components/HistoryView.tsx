@@ -2,9 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { Pencil, Search, Trash2 } from 'lucide-react';
 import {
   ACTIVATION_SIGNAL_OPTIONS,
+  CYCLE_PHASE_OPTIONS,
   FUNCTIONAL_IMPACT_OPTIONS,
+  MEDICATION_STATUS_OPTIONS,
   MOOD_DEFINITIONS,
+  MOOD_SWING_DIRECTION_OPTIONS,
+  MOOD_SWING_WINDOW_OPTIONS,
   REDUCED_SLEEP_NEED_OPTIONS,
+  SAFETY_CONCERN_OPTIONS,
   SLEEP_QUALITY_OPTIONS,
   STATE_DURATION_OPTIONS,
 } from '../data/defaults';
@@ -12,6 +17,7 @@ import {
   AppTab,
   AwarenessType,
   BehaviorCategory,
+  BehaviorMode,
   FunctionalImpactLevel,
   PulseEntry,
   ReducedSleepNeed,
@@ -74,28 +80,73 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   }, [entries, searchTerm, selectedCategoryFilter, typeFilter]);
 
   const getMoodText = (entry: PulseEntry): string => {
-    const names = entry.moods.map((id) => MOOD_DEFINITIONS.find((m) => m.id === id)?.label ?? id);
+    const names = entry.moods.map((id) => {
+      const label = MOOD_DEFINITIONS.find((m) => m.id === id)?.label ?? id;
+      const intensity = entry.moodIntensity?.[id];
+      return typeof intensity === 'number' ? `${label} (${intensity}/10)` : label;
+    });
     if (entry.moodOtherText.trim()) names.push(entry.moodOtherText.trim());
-    return names.join(', ');
+    return names.length > 0 ? names.join(', ') : 'não informado';
   };
 
-  const getAwarenessText = (a: AwarenessType) =>
-    a === AwarenessType.CONSCIENTE ? 'Consciente' : a === AwarenessType.AUTOMATICO ? 'Automático' : 'Mistura';
+  const getAwarenessText = (a: AwarenessType | null) =>
+    a === AwarenessType.CONSCIENTE
+      ? 'Consciente'
+      : a === AwarenessType.AUTOMATICO
+      ? 'Automático'
+      : a === AwarenessType.MISTURA
+      ? 'Mistura'
+      : 'não informado';
 
-  const getResistanceText = (r: ResistanceResult) =>
-    r === ResistanceResult.SIM ? 'Resistiu' : r === ResistanceResult.PARCIALMENTE ? 'Parcialmente' : 'Não interrompeu';
+  const getResistanceText = (r: ResistanceResult | null) =>
+    r === ResistanceResult.SIM
+      ? 'Resistiu'
+      : r === ResistanceResult.PARCIALMENTE
+      ? 'Parcialmente'
+      : r === ResistanceResult.NAO
+      ? 'Não interrompeu'
+      : 'não informado';
 
   const getSleepQualityText = (q: PulseEntry['sleep']['quality']) =>
-    SLEEP_QUALITY_OPTIONS.find((o) => o.id === q)?.label ?? q;
+    (q && SLEEP_QUALITY_OPTIONS.find((o) => o.id === q)?.label) || 'não informado';
 
-  const getReducedSleepText = (r: ReducedSleepNeed) =>
-    REDUCED_SLEEP_NEED_OPTIONS.find((o) => o.id === r)?.label ?? r;
+  const getReducedSleepText = (r: ReducedSleepNeed | null) =>
+    (r && REDUCED_SLEEP_NEED_OPTIONS.find((o) => o.id === r)?.label) || 'não informado';
 
   const getDurationText = (d: PulseEntry['stateDuration']) =>
-    STATE_DURATION_OPTIONS.find((o) => o.id === d)?.label ?? d;
+    (d && STATE_DURATION_OPTIONS.find((o) => o.id === d)?.label) || 'não informado';
 
-  const getImpactText = (lvl: FunctionalImpactLevel) =>
-    FUNCTIONAL_IMPACT_OPTIONS.find((o) => o.id === lvl)?.label ?? lvl;
+  const getImpactText = (lvl: FunctionalImpactLevel | null) =>
+    (lvl && FUNCTIONAL_IMPACT_OPTIONS.find((o) => o.id === lvl)?.label) || 'não informado';
+
+  const getMoodSwingText = (entry: PulseEntry): string => {
+    if (!entry.hadMoodSwing) return 'Não';
+    const direction = entry.moodSwingDirection
+      ? MOOD_SWING_DIRECTION_OPTIONS.find((o) => o.id === entry.moodSwingDirection)?.label
+      : null;
+    const timeWindow = entry.moodSwingWindow
+      ? MOOD_SWING_WINDOW_OPTIONS.find((o) => o.id === entry.moodSwingWindow)?.label
+      : null;
+    return ['Sim', direction, timeWindow].filter(Boolean).join(' · ');
+  };
+
+  const getSafetyText = (entry: PulseEntry): string | null => {
+    if (!entry.safetyConcern) return null;
+    return SAFETY_CONCERN_OPTIONS.find((o) => o.id === entry.safetyConcern)?.label ?? null;
+  };
+
+  const getMedicationText = (entry: PulseEntry): string | null => {
+    if (!entry.medication?.status) return null;
+    const label =
+      MEDICATION_STATUS_OPTIONS.find((o) => o.id === entry.medication.status)?.label ?? null;
+    if (!label) return null;
+    return entry.medication.effects ? `${label} — ${entry.medication.effects}` : label;
+  };
+
+  const getCycleText = (entry: PulseEntry): string | null =>
+    entry.cyclePhase
+      ? CYCLE_PHASE_OPTIONS.find((o) => o.id === entry.cyclePhase)?.label ?? null
+      : null;
 
   if (entries.length === 0) {
     return (
@@ -232,10 +283,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               .map((id) => ACTIVATION_SIGNAL_OPTIONS.find((o) => o.id === id)?.label ?? id)
               .join(' · ');
             const hasImpact =
-              entry.functionalImpact.work !== FunctionalImpactLevel.NENHUM ||
-              entry.functionalImpact.relationships !== FunctionalImpactLevel.NENHUM ||
-              entry.functionalImpact.routine !== FunctionalImpactLevel.NENHUM ||
+              Boolean(entry.functionalImpact.work) ||
+              Boolean(entry.functionalImpact.relationships) ||
+              Boolean(entry.functionalImpact.routine) ||
               entry.functionalImpact.note.trim().length > 0;
+            const safetyText = getSafetyText(entry);
+            const medicationText = getMedicationText(entry);
+            const cycleText = getCycleText(entry);
 
             return (
               <article
@@ -264,12 +318,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         {formatLongDate(entry.date)} às {entry.time}
                       </span>
                       <span aria-hidden="true">·</span>
-                      <span>Energia {entry.energyLevel}/10</span>
+                      <span>
+                        Energia {entry.energyLevel !== null ? `${entry.energyLevel}/10` : 'não informada'}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>Valência {entry.valence !== null ? `${entry.valence}/10` : 'não informada'}</span>
                       <span aria-hidden="true">·</span>
                       <span>
-                        Sono {entry.sleep.hours}h ({getSleepQualityText(entry.sleep.quality)})
+                        Sono {entry.sleep.hours !== null ? `${entry.sleep.hours}h` : 'não informado'} (
+                        {getSleepQualityText(entry.sleep.quality)})
                       </span>
-                      {entry.sleep.reducedNeed !== ReducedSleepNeed.NAO && (
+                      {entry.sleep.reducedNeed && entry.sleep.reducedNeed !== ReducedSleepNeed.NAO && (
                         <>
                           <span aria-hidden="true">·</span>
                           <span style={{ color: 'var(--color-accent)' }}>
@@ -277,11 +336,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           </span>
                         </>
                       )}
+                      {entry.sleep.noFatigueAfterShortSleep && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span style={{ color: 'var(--color-accent)' }}>Dormiu pouco sem fadiga</span>
+                        </>
+                      )}
                     </div>
 
                     <p className="text-base font-medium" style={{ color: 'var(--color-primary-strong)' }}>
                       Estado emocional: {getMoodText(entry)}
-                      {entry.hadMoodSwing ? ' · Com oscilação prévia de humor' : ''}
+                      {entry.hadMoodSwing ? ` · Oscilação: ${getMoodSwingText(entry)}` : ''}
                     </p>
 
                     <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -357,14 +422,23 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     <p>
                       <span className="font-semibold">Comportamentos: </span>
                       <span>
-                        {[...entry.behaviors.map((b) => b.itemLabel), entry.behaviorOtherText]
-                          .filter(Boolean)
-                          .join(' · ')}
+                        {entry.behaviors.length > 0
+                          ? entry.behaviors
+                              .map(
+                                (b) =>
+                                  `${b.itemLabel} [${
+                                    b.mode === BehaviorMode.IMPULSO ? 'só impulso' : 'fiz'
+                                  }${b.harm ? ', com prejuízo' : ''}]`
+                              )
+                              .concat(entry.behaviorOtherText ? [entry.behaviorOtherText] : [])
+                              .join(' · ')
+                          : 'não informado'}
                       </span>
                     </p>
                     <p className="text-sm font-mono tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-                      Vontade {entry.urgeIntensity}/10 · {getAwarenessText(entry.awareness)} ·{' '}
-                      {getResistanceText(entry.resisted)}
+                      Vontade{' '}
+                      {entry.urgeIntensity !== null ? `${entry.urgeIntensity}/10` : 'não informada'} ·{' '}
+                      {getAwarenessText(entry.awareness)} · {getResistanceText(entry.resisted)}
                     </p>
                   </div>
                 )}
@@ -408,6 +482,21 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         {getImpactText(entry.functionalImpact.relationships)}) · Rotina (
                         {getImpactText(entry.functionalImpact.routine)})
                         {entry.functionalImpact.note ? ` — ${entry.functionalImpact.note}` : ''}
+                      </p>
+                    )}
+                    {medicationText && (
+                      <p>
+                        <strong style={{ color: 'var(--text-primary)' }}>Medicação:</strong> {medicationText}
+                      </p>
+                    )}
+                    {cycleText && (
+                      <p>
+                        <strong style={{ color: 'var(--text-primary)' }}>Fase do ciclo:</strong> {cycleText}
+                      </p>
+                    )}
+                    {safetyText && (
+                      <p style={{ color: entry.safetyConcern === 'nenhum' ? undefined : 'var(--color-accent)' }}>
+                        <strong style={{ color: 'var(--text-primary)' }}>Segurança:</strong> {safetyText}
                       </p>
                     )}
                     {(entry.dayEvents.length > 0 || entry.dayEventsNote) && (

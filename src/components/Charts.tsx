@@ -76,6 +76,14 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
               />
               <span>Sono (h)</span>
             </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block w-2.5 h-1.5 rounded-xs shrink-0"
+                style={{ backgroundColor: 'var(--color-primary-strong)' }}
+                aria-hidden="true"
+              />
+              <span>Valência (prazer)</span>
+            </span>
             <span>Ep = Episódio comportamental</span>
             <span>* = Redução da necessidade de sono</span>
           </div>
@@ -97,20 +105,30 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                   ? `${pt.episodeCount} episódio(s)`
                   : 'Check-in calmo';
 
+                // Mesmo texto no tooltip e no rótulo acessível (o título sozinho não chega
+                // a leitores de tela).
+                const cellLabel = `${pt.shortLabel} (${statusLabel})${
+                  isLogged
+                    ? ` · Humor: ${pt.primaryMoodLabel ?? '-'} · Energia: ${
+                        pt.avgEnergy !== null ? `${pt.avgEnergy}/10` : 'não informado'
+                      } · Valência: ${
+                        pt.avgValence !== null ? `${pt.avgValence}/10` : 'não informado'
+                      } · Sono: ${pt.avgSleepHours !== null ? `${pt.avgSleepHours}h` : 'não informado'}${
+                        pt.hasReducedSleepNeed ? ' (redução necessidade de sono)' : ''
+                      }`
+                    : ''
+                }`;
+
                 return (
                   <div
                     key={pt.date}
+                    role="group"
+                    aria-label={cellLabel}
                     className="flex flex-col items-center gap-1.5 p-1 rounded-lg"
                     style={{
                       backgroundColor: pt.episodeCount > 0 ? 'var(--color-accent-soft)' : 'transparent',
                     }}
-                    title={`${pt.shortLabel} (${statusLabel})${
-                      isLogged
-                        ? ` · Humor: ${pt.primaryMoodLabel ?? '-'} · Energia: ${pt.avgEnergy}/10 · Sono: ${pt.avgSleepHours}h${
-                            pt.hasReducedSleepNeed ? ' (redução necessidade de sono)' : ''
-                          }`
-                        : ''
-                    }`}
+                    title={cellLabel}
                   >
                     {/* Indicador de episódio ou check-in */}
                     <div className="h-5 flex items-center justify-center text-[10px] font-mono font-semibold tabular-nums">
@@ -130,7 +148,7 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                         style={{
                           height: isLogged ? `${energyPct}%` : '4px',
                           backgroundColor: isLogged
-                            ? pt.avgEnergy !== null && pt.avgEnergy >= 7
+                            ? pt.avgEnergy !== null && pt.avgEnergy >= 8
                               ? 'var(--color-accent)'
                               : 'var(--color-primary)'
                             : 'var(--bg-subtle)',
@@ -152,6 +170,25 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                         backgroundColor: isLogged ? getTimelineMoodColor(pt) : 'var(--bg-subtle)',
                       }}
                     />
+
+                    {/* Valência do afeto: eixo separado da energia */}
+                    <div
+                      className="w-full h-1.5 rounded-sm overflow-hidden"
+                      style={{ backgroundColor: 'var(--bg-subtle)' }}
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="h-full rounded-sm"
+                        style={{
+                          width:
+                            isLogged && pt.avgValence !== null
+                              ? `${Math.max(6, pt.avgValence * 10)}%`
+                              : '0%',
+                          backgroundColor: 'var(--color-primary-strong)',
+                          opacity: 0.75,
+                        }}
+                      />
+                    </div>
 
                     {/* Leituras numéricas curtas */}
                     <div className="text-[10px] font-mono tabular-nums leading-tight text-center" style={{ color: 'var(--text-secondary)' }}>
@@ -217,7 +254,9 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                       className="font-mono tabular-nums text-xs shrink-0"
                       style={{ color: 'var(--text-secondary)' }}
                     >
-                      {cat.count} ep. ({cat.percentage}%) · vontade {cat.avgUrge}/10
+                      {cat.count} ep. ({cat.percentage}%) · vontade{' '}
+                      {cat.avgUrge !== null ? `${cat.avgUrge}/10` : 'não informada'}
+                      {cat.harmCount > 0 ? ` · prejuízo ${cat.harmCount}x` : ''}
                     </span>
                   </div>
                   <div
@@ -236,6 +275,11 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                       }}
                     />
                   </div>
+                  {cat.topItems.length > 0 && (
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Mais frequentes: {cat.topItems.map((i) => `${i.label} (${i.count}x)`).join(' · ')}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -258,7 +302,8 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
             Estado emocional × energia e vontade
           </h3>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Média de energia e impulsividade observada em cada estado emocional
+            Para cada estado emocional: quantos registros ocorreram, em quantos houve episódio, a energia
+            média e a intensidade da vontade (calculada apenas sobre os episódios)
           </p>
         </div>
 
@@ -285,7 +330,14 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                       </span>
                     </div>
                     <span className="font-mono tabular-nums text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      {m.count}x · energia {m.avgEnergy}/10 · vontade {m.avgUrge}/10
+                      {m.count}x · {m.episodeCount} ep. ({m.episodeRate}%) · energia{' '}
+                      {m.avgEnergy !== null ? `${m.avgEnergy}/10` : 'não informada'} · valência{' '}
+                      {m.avgValence !== null ? `${m.avgValence}/10` : 'não informada'} · vontade{' '}
+                      {m.episodeCount > 0
+                        ? m.avgUrge !== null
+                          ? `${m.avgUrge}/10`
+                          : 'não informada'
+                        : '—'}
                     </span>
                   </div>
                   <div

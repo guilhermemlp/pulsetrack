@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   CheckCircle2,
@@ -375,6 +375,8 @@ export default function App() {
               showFeedback('Edição cancelada.');
             }}
             theme={preferences.theme}
+            showSexualCategory={preferences.showSexualCategory}
+            trackCycle={preferences.trackCycle}
           />
         )}
 
@@ -430,6 +432,28 @@ export default function App() {
                     : 'A aba Registrar iniciará com visualização completa por padrão.'
                 );
                 return { ...prev, focusModeDefault: next };
+              });
+            }}
+            onToggleShowSexualCategory={() => {
+              setPreferences((prev) => {
+                const next = !prev.showSexualCategory;
+                showFeedback(
+                  next
+                    ? 'Bloco de comportamentos sexuais agora aparece no formulário.'
+                    : 'Bloco de comportamentos sexuais ocultado do formulário.'
+                );
+                return { ...prev, showSexualCategory: next };
+              });
+            }}
+            onToggleTrackCycle={() => {
+              setPreferences((prev) => {
+                const next = !prev.trackCycle;
+                showFeedback(
+                  next
+                    ? 'Acompanhamento de fase do ciclo ativado no formulário.'
+                    : 'Acompanhamento de fase do ciclo desativado.'
+                );
+                return { ...prev, trackCycle: next };
               });
             }}
             onFeedback={showFeedback}

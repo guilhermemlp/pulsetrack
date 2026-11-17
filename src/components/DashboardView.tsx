@@ -184,10 +184,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Sono médio e redução
               </p>
               <p className="text-3xl font-bold font-mono tabular-nums mt-2" style={{ color: 'var(--color-primary-strong)' }}>
-                {analytics.avgSleepHours}h
+                {analytics.avgSleepHours !== null ? `${analytics.avgSleepHours}h` : '—'}
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                Redução da necessidade de sono em {analytics.reducedSleepNeedCount} registro(s) ({analytics.reducedSleepNeedRate}%)
+                {analytics.avgSleepHours === null
+                  ? 'Nenhum registro informou as horas de sono'
+                  : `${analytics.sleepReportedCount} registro(s) informaram o sono`}
+                {' · '}Redução da necessidade de sono em {analytics.reducedSleepNeedCount} registro(s) ({analytics.reducedSleepNeedRate}%)
               </p>
             </div>
 
@@ -203,12 +206,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Energia média (0–10)
               </p>
               <p className="text-3xl font-bold font-mono tabular-nums mt-2" style={{ color: 'var(--text-primary)' }}>
-                {analytics.avgEnergy}
-                <span className="text-lg font-normal" style={{ color: 'var(--text-muted)' }}>
-                  /10
-                </span>
+                {analytics.avgEnergy !== null ? analytics.avgEnergy : '—'}
+                {analytics.avgEnergy !== null && (
+                  <span className="text-lg font-normal" style={{ color: 'var(--text-muted)' }}>
+                    /10
+                  </span>
+                )}
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                Valência: {analytics.avgValence !== null ? `${analytics.avgValence}/10` : 'não informada'}
+                {' · '}
                 {analytics.evolution.label}
               </p>
             </div>
@@ -225,13 +232,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Vontade média nos episódios
               </p>
               <p className="text-3xl font-bold font-mono tabular-nums mt-2" style={{ color: 'var(--color-accent)' }}>
-                {analytics.avgUrgeIntensity}
-                <span className="text-lg font-normal" style={{ color: 'var(--text-muted)' }}>
-                  /10
-                </span>
+                {analytics.avgUrgeIntensity !== null ? (
+                  <>
+                    {analytics.avgUrgeIntensity}
+                    <span className="text-lg font-normal" style={{ color: 'var(--text-muted)' }}>
+                      /10
+                    </span>
+                  </>
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                )}
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                {analytics.daysWithoutEpisodes} dias sem episódios em {analytics.periodDays}d
+                {analytics.daysWithoutEpisodes} dia(s) acompanhados sem episódio ·{' '}
+                {analytics.daysWithoutLog} sem registro (recorte de {analytics.periodDays}d)
               </p>
             </div>
           </div>

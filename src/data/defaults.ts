@@ -2,13 +2,21 @@ import {
   ActivationSignal,
   AwarenessType,
   BehaviorCategory,
+  BehaviorMode,
+  CyclePhase,
   EntryType,
   FunctionalImpactLevel,
+  MedicationStatus,
   MoodDefinition,
   MoodStateId,
+  MoodSwingDirection,
+  MoodSwingWindow,
   PulseEntry,
   ReducedSleepNeed,
   ResistanceResult,
+  SafetyConcern,
+  SelectedBehavior,
+  SleepRecord,
   SleepQuality,
   StateDuration,
   ThemeMode,
@@ -48,12 +56,48 @@ export const MOOD_DEFINITIONS: MoodDefinition[] = [
   },
   {
     id: MoodStateId.EUFORICO_AGITADO,
-    label: 'Eufórico / Agitado',
-    description: 'Energia acelerada, mente rápida ou excitação intensa',
+    label: 'Euforia / expansão',
+    description: 'Prazer expansivo, entusiasmo intenso ou sensação de grandiosidade',
     colorLight: '#C7753C',
     colorDark: '#E59A63',
     colorHighContrast: '#8C4310',
     polarity: 'alta',
+  },
+  {
+    id: MoodStateId.AGITACAO,
+    label: 'Agitação / aceleração',
+    description: 'Energia alta acompanhada de desconforto, inquietação ou irritação',
+    colorLight: '#C2603F',
+    colorDark: '#DE8567',
+    colorHighContrast: '#8E3517',
+    polarity: 'mista',
+  },
+  {
+    id: MoodStateId.HIPERFOCO,
+    label: 'Hiperfoco',
+    description: 'Absorção intensa em uma atividade, com noção de tempo reduzida',
+    colorLight: '#3E7C8C',
+    colorDark: '#6FA8B8',
+    colorHighContrast: '#1D4B58',
+    polarity: 'alta',
+  },
+  {
+    id: MoodStateId.SOBRECARGA_SENSORIAL,
+    label: 'Sobrecarga sensorial',
+    description: 'Sensações (som, luz, toque, cheiro, gente) ficaram insuportáveis',
+    colorLight: '#7A6BA8',
+    colorDark: '#A398C9',
+    colorHighContrast: '#4B3F73',
+    polarity: 'mista',
+  },
+  {
+    id: MoodStateId.MELTDOWN_SHUTDOWN,
+    label: 'Meltdown / shutdown',
+    description: 'Perda de controle emocional ou desligamento / retraimento total',
+    colorLight: '#8A5A6B',
+    colorDark: '#B28494',
+    colorHighContrast: '#5A2F3D',
+    polarity: 'baixa',
   },
   {
     id: MoodStateId.TEDIO,
@@ -115,44 +159,139 @@ export const REDUCED_SLEEP_NEED_OPTIONS: Array<{
   },
 ];
 
+/**
+ * Faixas alinhadas aos limiares clínicos de duração (episódio maníaco >= 4 dias,
+ * hipomania >= 4 dias, episódio depressivo >= 14 dias).
+ */
 export const STATE_DURATION_OPTIONS: Array<{ id: StateDuration; label: string }> = [
   { id: StateDuration.ESTAVEL, label: 'Estável / sem alteração marcante' },
   { id: StateDuration.HORAS, label: 'Algumas horas' },
-  { id: StateDuration.DIAS_CURTO, label: '1 a 3 dias seguidos' },
-  { id: StateDuration.DIAS_MEDIO, label: '4 a 7 dias seguidos' },
-  { id: StateDuration.SEMANAS, label: 'Mais de 1 semana (semanas)' },
+  { id: StateDuration.DIAS_1_3, label: '1 a 3 dias' },
+  { id: StateDuration.DIAS_4_6, label: '4 a 6 dias' },
+  { id: StateDuration.DIAS_7_13, label: '7 a 13 dias' },
+  { id: StateDuration.DIAS_14_MAIS, label: '14 dias ou mais' },
 ];
+
+export type ActivationSignalGroup = 'ativacao' | 'neurodivergente';
 
 export const ACTIVATION_SIGNAL_OPTIONS: Array<{
   id: ActivationSignal;
   label: string;
   description: string;
+  group: ActivationSignalGroup;
 }> = [
   {
     id: ActivationSignal.PENSAMENTOS_ACELERADOS,
     label: 'Pensamentos acelerados',
     description: 'Muitas ideias rápidas ao mesmo tempo ou mente difícil de desacelerar',
+    group: 'ativacao',
   },
   {
     id: ActivationSignal.FALA_INTENSA,
     label: 'Fala intensa ou rápida',
     description: 'Vontade de falar mais rápido, mais alto ou sem pausas',
+    group: 'ativacao',
   },
   {
     id: ActivationSignal.AUMENTO_ATIVIDADES,
     label: 'Aumento de atividades',
     description: 'Muitos planos, projetos ou tarefas iniciadas simultaneamente',
+    group: 'ativacao',
   },
   {
     id: ActivationSignal.IRRITABILIDADE,
     label: 'Irritabilidade aumentada',
     description: 'Baixa tolerância a interrupções, atrasos ou frustrações',
+    group: 'ativacao',
   },
   {
     id: ActivationSignal.SOCIABILIDADE_AUMENTADA,
     label: 'Sociabilidade aumentada',
     description: 'Maior busca por contato, conversas, mensagens ou exposição social',
+    group: 'ativacao',
   },
+  {
+    id: ActivationSignal.SOBRECARGA_SENSORIAL,
+    label: 'Sobrecarga sensorial',
+    description: 'Som, luz, toque, cheiro ou muita gente ficaram insuportáveis',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.MELTDOWN_SHUTDOWN,
+    label: 'Meltdown ou shutdown',
+    description: 'Explosão emocional / colapso ou desligamento e retraimento',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.DISFUNCAO_EXECUTIVA,
+    label: 'Disfunção executiva / paralisia de tarefa',
+    description: 'Saber o que fazer e não conseguir iniciar, mesmo querendo',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.MASCARAMENTO,
+    label: 'Custo de mascarar / camuflar',
+    description: 'Esforço consciente para parecer “normal” e o cansaço que isso trouxe',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.EVITACAO_DEMANDA,
+    label: 'Evitação de demanda',
+    description: 'Bloqueio ou recusa diante de uma exigência, mesmo sendo algo desejado',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.CEGUEIRA_TEMPORAL,
+    label: 'Cegueira temporal',
+    description: 'Perder a noção do tempo, atrasos ou subestimar quanto algo leva',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.STIMMING,
+    label: 'Stimming / autorregulação',
+    description: 'Movimentos ou repetições (balançar, girar, apertar) para se regular',
+    group: 'neurodivergente',
+  },
+  {
+    id: ActivationSignal.HIPERFOCO,
+    label: 'Hiperfoco',
+    description: 'Absorção intensa que fez o resto (comer, dormir, prazos) desaparecer',
+    group: 'neurodivergente',
+  },
+];
+
+export const MOOD_SWING_DIRECTION_OPTIONS: Array<{ id: MoodSwingDirection; label: string }> = [
+  { id: MoodSwingDirection.SUBIU, label: 'Subiu (ficou mais ativado/elevado)' },
+  { id: MoodSwingDirection.DESCEU, label: 'Desceu (ficou mais para baixo)' },
+  { id: MoodSwingDirection.AMBOS, label: 'Oscilou para os dois lados' },
+];
+
+export const MOOD_SWING_WINDOW_OPTIONS: Array<{ id: MoodSwingWindow; label: string; hint: string }> = [
+  { id: MoodSwingWindow.MINUTOS, label: 'Minutos', hint: 'Mudança muito rápida, reativa' },
+  { id: MoodSwingWindow.HORAS, label: 'Horas', hint: 'Ao longo do mesmo dia' },
+  { id: MoodSwingWindow.DIAS, label: 'Dias', hint: 'Mudança sustentada por um ou mais dias' },
+];
+
+export const SAFETY_CONCERN_OPTIONS: Array<{ id: SafetyConcern; label: string }> = [
+  { id: SafetyConcern.NENHUM, label: 'Não tive esses pensamentos' },
+  { id: SafetyConcern.PENSAMENTOS_MORTE, label: 'Tive pensamentos de morte ou de não existir' },
+  { id: SafetyConcern.AUTOLESAO, label: 'Tive impulso de me machucar' },
+  { id: SafetyConcern.NAO_RESPONDER, label: 'Prefiro não responder agora' },
+];
+
+export const MEDICATION_STATUS_OPTIONS: Array<{ id: MedicationStatus; label: string }> = [
+  { id: MedicationStatus.USO_REGULAR, label: 'Tomei como prescrito' },
+  { id: MedicationStatus.ESQUECI, label: 'Esqueci / não tomei' },
+  { id: MedicationStatus.PARCIAL, label: 'Tomei parcialmente ou em outro horário' },
+  { id: MedicationStatus.NAO_USO, label: 'Não uso medicação' },
+];
+
+export const CYCLE_PHASE_OPTIONS: Array<{ id: CyclePhase; label: string }> = [
+  { id: CyclePhase.MENSTRUAL, label: 'Menstrual' },
+  { id: CyclePhase.FOLICULAR, label: 'Folicular' },
+  { id: CyclePhase.OVULATORIA, label: 'Ovulatória' },
+  { id: CyclePhase.LUTEA, label: 'Lútea' },
+  { id: CyclePhase.NAO_SE_APLICA, label: 'Não se aplica' },
 ];
 
 export const FUNCTIONAL_IMPACT_OPTIONS: Array<{ id: FunctionalImpactLevel; label: string }> = [
@@ -171,12 +310,21 @@ export const DEFAULT_DAY_EVENTS: string[] = [
   'Isolamento prolongado',
   'Excesso de cafeína / estimulantes',
   'Atividade física / movimento',
+  'Sobrecarga sensorial (som, luz, toque, gente)',
+  'Meltdown ou shutdown',
+  'Precisei mascarar / me camuflar',
+  'Demanda externa ou cobrança',
+  'Mudança inesperada de plano',
+  'Burnout / esgotamento neurodivergente',
+  'Privação de sono por rotina desregulada',
 ];
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: ThemeMode.LIGHT,
   reduceMotion: false,
   focusModeDefault: false,
+  showSexualCategory: false,
+  trackCycle: false,
   reportLabel: '',
 };
 
@@ -263,6 +411,106 @@ export function createDefaultCategories(): BehaviorCategory[] {
  * Gera 14 dias contínuos (check-ins diários + episódios, sono, ativação e impacto)
  * para ilustrar evolução longitudinal, ciclos (antes/durante/depois) e relatórios.
  */
+/**
+ * Semente da amostra: campos derivados (intensidade do humor, valência, modo do
+ * comportamento, detalhes do sono) são preenchidos por `completeSample`.
+ */
+type SampleSeed = Omit<
+  PulseEntry,
+  | 'moodIntensity'
+  | 'valence'
+  | 'moodSwingDirection'
+  | 'moodSwingWindow'
+  | 'medication'
+  | 'cyclePhase'
+  | 'safetyConcern'
+  | 'behaviors'
+  | 'sleep'
+> & {
+  valence?: number | null;
+  moodSwingDirection?: MoodSwingDirection | null;
+  moodSwingWindow?: MoodSwingWindow | null;
+  cyclePhase?: CyclePhase | null;
+  safetyConcern?: SafetyConcern | null;
+  behaviors: Array<Omit<SelectedBehavior, 'mode' | 'harm'>>;
+  sleep: Omit<
+    SleepRecord,
+    'bedTime' | 'wakeTime' | 'latencyMinutes' | 'awakenings' | 'noFatigueAfterShortSleep'
+  > &
+    Partial<
+      Pick<
+        SleepRecord,
+        'bedTime' | 'wakeTime' | 'latencyMinutes' | 'awakenings' | 'noFatigueAfterShortSleep'
+      >
+    >;
+};
+
+/**
+ * Deriva a valência do afeto a partir da polaridade dos humores marcados (apenas
+ * para o conjunto de exemplo, que não pediu valência ao usuário).
+ */
+function deriveSampleValence(moods: MoodStateId[]): number | null {
+  if (moods.length === 0) return null;
+  const scores = moods.map((id) => {
+    const polarity = MOOD_DEFINITIONS.find((m) => m.id === id)?.polarity;
+    if (polarity === 'alta') return 8;
+    if (polarity === 'baixa') return 2.5;
+    if (polarity === 'neutra') return 5;
+    return 4;
+  });
+  return Number((scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(1));
+}
+
+function completeSample(seed: SampleSeed): PulseEntry {
+  const moodIntensity: Record<string, number> = {};
+  seed.moods.forEach((mood, index) => {
+    moodIntensity[mood] = Math.max(4, 8 - index * 2);
+  });
+
+  // Resistiu totalmente => o registro descreve impulso sem ação; nos demais, ação efetiva.
+  const mode = seed.resisted === ResistanceResult.SIM ? BehaviorMode.IMPULSO : BehaviorMode.FEITO;
+
+  return {
+    ...seed,
+    moodIntensity,
+    valence: seed.valence !== undefined ? seed.valence : deriveSampleValence(seed.moods),
+    moodSwingDirection:
+      seed.moodSwingDirection !== undefined
+        ? seed.moodSwingDirection
+        : seed.hadMoodSwing
+        ? MoodSwingDirection.AMBOS
+        : null,
+    moodSwingWindow:
+      seed.moodSwingWindow !== undefined
+        ? seed.moodSwingWindow
+        : seed.hadMoodSwing
+        ? MoodSwingWindow.HORAS
+        : null,
+    behaviors: seed.behaviors.map((behavior) => ({
+      ...behavior,
+      mode,
+      harm: mode === BehaviorMode.FEITO,
+    })),
+    sleep: {
+      ...seed.sleep,
+      bedTime: seed.sleep.bedTime ?? null,
+      wakeTime: seed.sleep.wakeTime ?? null,
+      latencyMinutes: seed.sleep.latencyMinutes ?? null,
+      awakenings: seed.sleep.awakenings ?? null,
+      noFatigueAfterShortSleep:
+        seed.sleep.noFatigueAfterShortSleep ??
+        (seed.sleep.reducedNeed === ReducedSleepNeed.MARCANTE
+          ? true
+          : seed.sleep.reducedNeed === ReducedSleepNeed.LEVE
+          ? null
+          : false),
+    },
+    medication: { status: MedicationStatus.USO_REGULAR, effects: '' },
+    cyclePhase: seed.cyclePhase ?? null,
+    safetyConcern: seed.safetyConcern ?? SafetyConcern.NENHUM,
+  };
+}
+
 export function createSampleEntries(): PulseEntry[] {
   const now = new Date();
   const daysAgo = (n: number): string => {
@@ -274,7 +522,7 @@ export function createSampleEntries(): PulseEntry[] {
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  return [
+  const seeds: SampleSeed[] = [
     // D-13: Check-in sem episódio — início da queda de sono e leve ativação
     {
       id: 'demo_14',
@@ -321,7 +569,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: 'Oscilação rápida no fim da tarde para sensação de aceleração intensa.',
       energyLevel: 9,
       sleep: { hours: 4.0, quality: SleepQuality.RUIM, reducedNeed: ReducedSleepNeed.MARCANTE },
-      stateDuration: StateDuration.DIAS_CURTO,
+      stateDuration: StateDuration.DIAS_1_3,
       activationSignals: [
         ActivationSignal.PENSAMENTOS_ACELERADOS,
         ActivationSignal.FALA_INTENSA,
@@ -362,7 +610,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: 'Queda marcante de energia em relação ao dia anterior.',
       energyLevel: 2,
       sleep: { hours: 9.5, quality: SleepQuality.MUITO_RUIM, reducedNeed: ReducedSleepNeed.NAO },
-      stateDuration: StateDuration.DIAS_CURTO,
+      stateDuration: StateDuration.DIAS_1_3,
       activationSignals: [],
       triggerContext: 'Exaustão física e mental após pico anterior, dificuldade para iniciar tarefas',
       behaviors: [
@@ -398,7 +646,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: '',
       energyLevel: 3,
       sleep: { hours: 8.0, quality: SleepQuality.RUIM, reducedNeed: ReducedSleepNeed.NAO },
-      stateDuration: StateDuration.DIAS_CURTO,
+      stateDuration: StateDuration.DIAS_1_3,
       activationSignals: [],
       triggerContext: 'Vazio noturno após dia isolado em casa',
       behaviors: [
@@ -504,7 +752,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: 'Aceleração mental contínua desde ontem.',
       energyLevel: 8,
       sleep: { hours: 4.5, quality: SleepQuality.RUIM, reducedNeed: ReducedSleepNeed.MARCANTE },
-      stateDuration: StateDuration.DIAS_CURTO,
+      stateDuration: StateDuration.DIAS_1_3,
       activationSignals: [
         ActivationSignal.PENSAMENTOS_ACELERADOS,
         ActivationSignal.AUMENTO_ATIVIDADES,
@@ -545,7 +793,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: 'Pico de excitação e ansiedade tarde da noite.',
       energyLevel: 8,
       sleep: { hours: 4.5, quality: SleepQuality.RUIM, reducedNeed: ReducedSleepNeed.MARCANTE },
-      stateDuration: StateDuration.DIAS_MEDIO,
+      stateDuration: StateDuration.DIAS_7_13,
       activationSignals: [
         ActivationSignal.PENSAMENTOS_ACELERADOS,
         ActivationSignal.SOCIABILIDADE_AUMENTADA,
@@ -622,7 +870,7 @@ export function createSampleEntries(): PulseEntry[] {
       moodSwingDescription: '',
       energyLevel: 4,
       sleep: { hours: 8.5, quality: SleepQuality.BOA, reducedNeed: ReducedSleepNeed.NAO },
-      stateDuration: StateDuration.DIAS_CURTO,
+      stateDuration: StateDuration.DIAS_1_3,
       activationSignals: [],
       triggerContext: '',
       behaviors: [],
@@ -780,4 +1028,6 @@ export function createSampleEntries(): PulseEntry[] {
       dayEventsNote: '',
     },
   ];
+
+  return seeds.map(completeSample);
 }

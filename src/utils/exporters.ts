@@ -1,21 +1,32 @@
-import { jsPDF } from 'jspdf';
 import {
   ACTIVATION_SIGNAL_OPTIONS,
+  CYCLE_PHASE_OPTIONS,
   FUNCTIONAL_IMPACT_OPTIONS,
+  MEDICATION_STATUS_OPTIONS,
   MOOD_DEFINITIONS,
+  MOOD_SWING_DIRECTION_OPTIONS,
+  MOOD_SWING_WINDOW_OPTIONS,
   REDUCED_SLEEP_NEED_OPTIONS,
+  SAFETY_CONCERN_OPTIONS,
   SLEEP_QUALITY_OPTIONS,
   STATE_DURATION_OPTIONS,
 } from '../data/defaults';
 import {
   AnalyticsSummary,
   AwarenessType,
-  EntryType,
+  BehaviorMode,
   PeriodFilter,
   PulseEntry,
   ResistanceResult,
 } from '../types/pulsetrack';
 import { formatLongDate, isEpisodeEntry, toLocalIsoDate } from './analytics';
+
+/** Marcador único de campo não respondido — nunca substituído por zero ou por um padrão. */
+const NOT_INFORMED = 'não informado';
+
+function num(value: number | null, suffix = ''): string {
+  return value === null ? NOT_INFORMED : `${value}${suffix}`;
+}
 
 function pdfSafe(text: string): string {
   return text
@@ -30,45 +41,110 @@ function pdfSafe(text: string): string {
 }
 
 function getMoodLabels(entry: PulseEntry): string {
-  const labels = entry.moods.map((id) => MOOD_DEFINITIONS.find((m) => m.id === id)?.label ?? id);
+  const labels = entry.moods.map((id) => {
+    const label = MOOD_DEFINITIONS.find((m) => m.id === id)?.label ?? id;
+    const intensity = entry.moodIntensity?.[id];
+    return typeof intensity === 'number' ? `${label} (${intensity}/10)` : label;
+  });
   if (entry.moodOtherText.trim()) {
     labels.push(`Outro: ${entry.moodOtherText.trim()}`);
   }
-  return labels.join('; ');
+  return labels.length > 0 ? labels.join('; ') : NOT_INFORMED;
 }
 
-function getAwarenessLabel(a: AwarenessType): string {
+function getBehaviorModeLabel(mode: BehaviorMode): string {
+  return mode === BehaviorMode.IMPULSO ? 'só impulso, não fiz' : 'fiz';
+}
+
+function getBehaviorsText(entry: PulseEntry): string {
+  if (entry.behaviors.length === 0) return NOT_INFORMED;
+  return entry.behaviors
+    .map(
+      (b) =>
+        `${b.categoryName}: ${b.itemLabel} [${getBehaviorModeLabel(b.mode)}${
+          b.harm ? ', com prejuízo' : ''
+        }]`
+    )
+    .join(' | ');
+}
+
+function getAwarenessLabel(a: AwarenessType | null): string {
   if (a === AwarenessType.CONSCIENTE) return 'Consciente';
   if (a === AwarenessType.AUTOMATICO) return 'Automático';
-  return 'Mistura';
+  if (a === AwarenessType.MISTURA) return 'Mistura';
+  return NOT_INFORMED;
 }
 
-function getResistanceLabel(r: ResistanceResult): string {
+function getResistanceLabel(r: ResistanceResult | null): string {
   if (r === ResistanceResult.SIM) return 'Sim';
   if (r === ResistanceResult.PARCIALMENTE) return 'Parcialmente';
-  return 'Não';
+  if (r === ResistanceResult.NAO) return 'Não';
+  return NOT_INFORMED;
 }
 
 function getSleepQualityLabel(q: PulseEntry['sleep']['quality']): string {
+  if (!q) return NOT_INFORMED;
   return SLEEP_QUALITY_OPTIONS.find((o) => o.id === q)?.label ?? q;
 }
 
 function getReducedSleepLabel(r: PulseEntry['sleep']['reducedNeed']): string {
+  if (!r) return NOT_INFORMED;
   return REDUCED_SLEEP_NEED_OPTIONS.find((o) => o.id === r)?.label ?? r;
 }
 
 function getDurationLabel(d: PulseEntry['stateDuration']): string {
+  if (!d) return NOT_INFORMED;
   return STATE_DURATION_OPTIONS.find((o) => o.id === d)?.label ?? d;
 }
 
 function getActivationLabels(signals: PulseEntry['activationSignals']): string {
+  if (signals.length === 0) return 'nenhum sinal marcado';
   return signals
     .map((id) => ACTIVATION_SIGNAL_OPTIONS.find((o) => o.id === id)?.label ?? id)
     .join('; ');
 }
 
 function getImpactLabel(lvl: PulseEntry['functionalImpact']['work']): string {
+  if (!lvl) return NOT_INFORMED;
   return FUNCTIONAL_IMPACT_OPTIONS.find((o) => o.id === lvl)?.label ?? lvl;
+}
+
+function getMoodSwingDirectionLabel(entry: PulseEntry): string {
+  if (!entry.hadMoodSwing) return 'Não';
+  const direction =
+    MOOD_SWING_DIRECTION_OPTIONS.find((o) => o.id === entry.moodSwingDirection)?.label ??
+    NOT_INFORMED;
+  const window = MOOD_SWING_WINDOW_OPTIONS.find((o) => o.id === entry.moodSwingWindow)?.label;
+  return window ? `Sim (${direction}; ${window})` : `Sim (${direction})`;
+}
+
+function getMedicationLabel(entry: PulseEntry): string {
+  if (!entry.medication?.status) return NOT_INFORMED;
+  return (
+    MEDICATION_STATUS_OPTIONS.find((o) => o.id === entry.medication.status)?.label ?? NOT_INFORMED
+  );
+}
+
+function getCyclePhaseLabel(entry: PulseEntry): string {
+  if (!entry.cyclePhase) return NOT_INFORMED;
+  return CYCLE_PHASE_OPTIONS.find((o) => o.id === entry.cyclePhase)?.label ?? NOT_INFORMED;
+}
+
+function getSafetyLabel(entry: PulseEntry): string {
+  if (!entry.safetyConcern) return 'não respondido';
+  return (
+    SAFETY_CONCERN_OPTIONS.find((o) => o.id === entry.safetyConcern)?.label ?? 'não respondido'
+  );
+}
+
+function getSleepDetailsText(entry: PulseEntry): string {
+  const parts = [
+    entry.sleep.bedTime ? `deitou ${entry.sleep.bedTime}` : '',
+    entry.sleep.wakeTime ? `levantou ${entry.sleep.wakeTime}` : '',
+    entry.sleep.latencyMinutes !== null ? `latência ${entry.sleep.latencyMinutes}min` : '',
+    entry.sleep.awakenings !== null ? `despertares ${entry.sleep.awakenings}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : NOT_INFORMED;
 }
 
 function periodLabel(period: PeriodFilter): string {
@@ -91,16 +167,19 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
     'Data',
     'Horário',
     'Estado Emocional (Humor)',
+    'Valência do Afeto (0-10)',
     'Oscilação de Humor',
     'Descrição da Oscilação',
-    'Energia (0-10)',
+    'Energia / Ativação (0-10)',
     'Sono (Horas)',
     'Qualidade do Sono',
     'Redução da Necessidade de Sono',
+    'Dormiu pouco sem fadiga',
+    'Horários e Detalhes do Sono',
     'Duração do Estado',
-    'Sinais de Ativação',
+    'Sinais de Ativação e Experiências Neurodivergentes',
     'Gatilho / Contexto',
-    'Categorias e Comportamentos',
+    'Comportamentos (feito x impulso)',
     'Outro Comportamento',
     'Consciência',
     'Conseguiu Interromper',
@@ -111,15 +190,16 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
     'Impacto Relacionamentos',
     'Impacto Rotina',
     'Nota Impacto Funcional',
+    'Medicação',
+    'Efeitos da Medicação',
+    'Fase do Ciclo',
+    'Segurança (ideação / autolesão)',
     'Eventos do Dia',
     'Observações',
   ];
 
   const rows = entries.map((entry) => {
     const isEp = isEpisodeEntry(entry);
-    const behaviorsText = entry.behaviors
-      .map((b) => `${b.categoryName}: ${b.itemLabel}`)
-      .join(' | ');
     const eventsText = [entry.dayEvents.join(' | '), entry.dayEventsNote.trim()]
       .filter(Boolean)
       .join(' - ');
@@ -129,26 +209,37 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
       formatLongDate(entry.date),
       entry.time,
       getMoodLabels(entry),
-      entry.hadMoodSwing ? 'Sim' : 'Não',
+      num(entry.valence, '/10'),
+      getMoodSwingDirectionLabel(entry),
       entry.moodSwingDescription,
-      entry.energyLevel,
-      entry.sleep.hours,
+      num(entry.energyLevel, '/10'),
+      num(entry.sleep.hours, 'h'),
       getSleepQualityLabel(entry.sleep.quality),
       getReducedSleepLabel(entry.sleep.reducedNeed),
+      entry.sleep.noFatigueAfterShortSleep === null
+        ? NOT_INFORMED
+        : entry.sleep.noFatigueAfterShortSleep
+        ? 'Sim'
+        : 'Não',
+      getSleepDetailsText(entry),
       getDurationLabel(entry.stateDuration),
       getActivationLabels(entry.activationSignals),
       entry.triggerContext,
-      behaviorsText,
+      getBehaviorsText(entry),
       entry.behaviorOtherText,
-      isEp ? getAwarenessLabel(entry.awareness) : '-',
-      isEp ? getResistanceLabel(entry.resisted) : '-',
-      isEp ? entry.urgeIntensity : '-',
+      isEp ? getAwarenessLabel(entry.awareness) : NOT_INFORMED,
+      isEp ? getResistanceLabel(entry.resisted) : NOT_INFORMED,
+      isEp ? num(entry.urgeIntensity, '/10') : NOT_INFORMED,
       entry.feelingDuring,
       entry.feelingAfter,
       getImpactLabel(entry.functionalImpact.work),
       getImpactLabel(entry.functionalImpact.relationships),
       getImpactLabel(entry.functionalImpact.routine),
       entry.functionalImpact.note,
+      getMedicationLabel(entry),
+      entry.medication?.effects ?? '',
+      getCyclePhaseLabel(entry),
+      getSafetyLabel(entry),
       eventsText,
       entry.notes,
     ]
@@ -171,13 +262,16 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
 
 /**
  * Gera relatório clínico ampliado em PDF para consulta psiquiátrica/psicológica.
+ * O jsPDF (e suas dependências de canvas) é carregado sob demanda para mantê-lo
+ * fora do bundle inicial — só é baixado quando o usuário pede o relatório.
  */
-export function exportClinicalReportPdf(
+export async function exportClinicalReportPdf(
   entries: PulseEntry[],
   analytics: AnalyticsSummary,
   period: PeriodFilter,
   reportLabel: string
-): void {
+): Promise<void> {
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -259,17 +353,50 @@ export function exportClinicalReportPdf(
     `Total de registros: ${analytics.totalEntries} (${analytics.totalCheckinsOnly} check-ins sem compulsão + ${analytics.totalEpisodes} episódios comportamentais) em ${analytics.daysLogged} dia(s) acompanhados.`
   );
   addParagraph(
-    `Dias no recorte (${analytics.periodDays}d): ${analytics.daysWithEpisodes} dia(s) com episódios | ${analytics.daysWithoutEpisodes} dia(s) sem episódios.`
+    `Dias acompanhados: ${analytics.daysLogged} de ${analytics.periodDays} — ${analytics.daysWithEpisodes} com episódios | ${analytics.daysWithoutEpisodes} sem episódios | ${analytics.daysWithoutLog} sem nenhum registro.`
   );
   addParagraph(
-    `Médias do período: Energia ${analytics.avgEnergy}/10 | Sono ${analytics.avgSleepHours}h/noite | Intensidade da vontade (nos episódios) ${analytics.avgUrgeIntensity}/10.`
+    `Médias do período (somente campos respondidos): Valência ${num(
+      analytics.avgValence,
+      '/10'
+    )} (${analytics.valenceReportedCount} resp.) | Energia ${num(
+      analytics.avgEnergy,
+      '/10'
+    )} (${analytics.energyReportedCount} resp.) | Sono ${num(
+      analytics.avgSleepHours,
+      'h'
+    )}/noite (${analytics.sleepReportedCount} resp.) | Vontade ${num(
+      analytics.avgUrgeIntensity,
+      '/10'
+    )}.`
+  );
+  addParagraph(
+    'Campos não respondidos aparecem como "não informado". Nenhuma média do relatório usa valor presumido.',
+    8.5
   );
 
   // 2. Estado de Ativação, Sono e Duração
   addSectionTitle('2. Estado de Ativação, Sono e Duração das Alterações');
   addParagraph(
-    `- Sono: média de ${analytics.avgSleepHours}h/noite. Redução da necessidade de sono relatada em ${analytics.reducedSleepNeedCount} registro(s) (${analytics.reducedSleepNeedRate}%). Noites com sono ruim ou <6h: ${analytics.poorSleepCount}.`
+    `- Sono: média de ${num(
+      analytics.avgSleepHours,
+      'h'
+    )}/noite. Redução da necessidade de sono relatada em ${analytics.reducedSleepNeedCount} registro(s) (${analytics.reducedSleepNeedRate}% dos que responderam). Noites com sono ruim ou <6h: ${analytics.poorSleepCount}.
+- Dormiu pouco (<= 6h) e passou o dia sem sono nem fadiga: ${analytics.noFatigueAfterShortSleepCount} registro(s) — marcador mais específico de ativação de humor do que a energia alta isolada.`
   );
+  if (analytics.menstrualPhaseStats.length > 0) {
+    addParagraph(
+      `- Fase do ciclo menstrual: ${analytics.menstrualPhaseStats
+        .map(
+          (phase) =>
+            `${phase.label} (${phase.entries} reg.; valência ${num(
+              phase.avgValence,
+              '/10'
+            )}; energia ${num(phase.avgEnergy, '/10')}; ${phase.episodeRate}% com episódio)`
+        )
+        .join(' | ')}.`
+    );
+  }
   if (analytics.durationDistribution.length > 0) {
     addParagraph(
       `- Duração dos estados relatada: ${analytics.durationDistribution
@@ -322,9 +449,12 @@ export function exportClinicalReportPdf(
   addSectionTitle('4. Indicadores para Investigação de Bipolaridade e Compulsões');
   const bi = analytics.bipolarIndicators;
   addParagraph(
-    `- Episódios em Alta Energia / Euforia (Energia >= 7 ou Eufórico/Agitado): ${bi.highEnergyEpisodes} de ${analytics.totalEpisodes} (${bi.highEnergyPercent}%), vontade média ${bi.highEnergyAvgUrge}/10.${
+    `- Episódios em alta energia (Energia >= 8/10 combinada com redução da necessidade de sono): ${bi.highEnergyEpisodes} de ${analytics.totalEpisodes} (${bi.highEnergyPercent}%), vontade média ${num(
+      bi.highEnergyAvgUrge,
+      '/10'
+    )}.${
       bi.highEnergyTopBehaviors.length > 0 ? ` Itens: ${bi.highEnergyTopBehaviors.join(', ')}.` : ''
-    }`
+    } Energia alta isolada (hiperfoco, ansiedade, cafeína) não entra neste indicador.`
   );
   addParagraph(
     `- Episódios de Alívio em Baixa Energia / Tristeza / Apatia: ${bi.lowEnergyReliefEpisodes} de ${analytics.totalEpisodes} (${bi.lowEnergyPercent}%), ${bi.lowEnergyAutomaticRate}% em modo automático ou misto.${
@@ -332,7 +462,10 @@ export function exportClinicalReportPdf(
     }`
   );
   addParagraph(
-    `- Oscilações de humor relatadas: em ${bi.moodSwingEntries} registro(s) (${bi.moodSwingPercent}%). Nos episódios com oscilação prévia, vontade média ${bi.moodSwingAvgUrge}/10 e taxa de não interrupção ${bi.moodSwingNoResistRate}%.`
+    `- Oscilações de humor relatadas: em ${bi.moodSwingEntries} registro(s) (${bi.moodSwingPercent}%). Nos episódios com oscilação prévia, vontade média ${num(
+      bi.moodSwingAvgUrge,
+      '/10'
+    )} e taxa de não interrupção ${bi.moodSwingNoResistRate}%. Direção e janela de tempo são registradas por episódio.`
   );
   addParagraph(
     `- Pensamentos obsessivos intensos: ${bi.obsessiveThoughtsCount} ocorrência(s) | Padrão "expectativa alta -> descarga -> queda de interesse": ${bi.expectationDropPatternCount} ocorrência(s).`
@@ -349,10 +482,19 @@ export function exportClinicalReportPdf(
           ? ` | Itens: ${cat.topItems.map((i) => `${i.label} (${i.count}x)`).join(', ')}`
           : '';
       addParagraph(
-        `- ${cat.categoryName}: ${cat.count} episódio(s) (${cat.percentage}%) | Vontade média ${cat.avgUrge}/10${topStr}`
+        `- ${cat.categoryName}: ${cat.count} episódio(s) (${cat.percentage}%) | Vontade média ${num(
+          cat.avgUrge,
+          '/10'
+        )} | Com prejuízo/sofrimento: ${cat.harmCount}${topStr}`
       );
     }
   }
+  const bm = analytics.behaviorModes;
+  addParagraph(
+    `Feito x impulso: ${bm.feitos} comportamento(s) efetivamente realizados e ${bm.impulsos} que ficaram só no impulso (${bm.registrosComImpulsoSemAcao} registro(s) sem nenhuma ação). Prejuízo ou sofrimento marcado em ${bm.comPrejuizo} ocorrência(s).`,
+    9.5,
+    true
+  );
   const fi = analytics.functionalImpactSummary;
   addParagraph(
     `Impacto funcional moderado/intenso: presente em ${fi.anySignificantImpactRate}% dos registros (Trabalho/Estudos: ${fi.workModerateOrHigh}x | Relacionamentos: ${fi.relationshipsModerateOrHigh}x | Rotina: ${fi.routineModerateOrHigh}x).`,
@@ -360,9 +502,43 @@ export function exportClinicalReportPdf(
     true
   );
 
-  // 6. Evolução e Linha do Tempo Recente
-  addSectionTitle('6. Evolução e Registros Diários Recentes (Check-ins e Episódios)');
+  // 6. Segurança e Medicação
+  addSectionTitle('6. Segurança e Adesão Medicamentosa');
+  const safety = analytics.safetySummary;
+  if (safety.pensamentosMorte + safety.autolesao > 0) {
+    addParagraph(
+      `- Registros com pensamentos de morte: ${safety.pensamentosMorte} | com impulso de autolesão: ${safety.autolesao} | "prefiro não responder": ${safety.naoResponder}.`,
+      9.5,
+      true,
+      [148, 47, 25]
+    );
+    addParagraph(
+      'Item de segurança autorreferido, não é instrumento de rastreio. Em risco imediato: CVV 188 (24h), SAMU 192 ou pronto-socorro.'
+    );
+  } else {
+    addParagraph(
+      `- Sem relato de pensamentos de morte ou impulso de autolesão nos registros respondidos ("prefiro não responder": ${safety.naoResponder}).`
+    );
+  }
+  const med = analytics.medicationSummary;
+  addParagraph(
+    `- Medicação: tomou como prescrito ${med.regular}x | esqueceu ${med.esquecida}x | parcial ${med.parcial}x | não usa ${med.naoUso}x | não informado ${med.naoInformado}x.`
+  );
+
+  // 7. Evolução e Linha do Tempo Recente
+  addSectionTitle('7. Evolução e Registros Diários Recentes (Check-ins e Episódios)');
   addParagraph(`${analytics.evolution.label}: ${analytics.evolution.description}`, 9.5, true);
+  if (analytics.evolution.status !== 'insuficiente') {
+    addParagraph(
+      `Episódios (${analytics.evolution.previousCount} no período anterior → ${
+        analytics.evolution.currentCount
+      } no atual) | Vontade média ${num(analytics.evolution.previousUrge, '/10')} → ${num(
+        analytics.evolution.currentUrge,
+        '/10'
+      )}.`,
+      9
+    );
+  }
 
   const recentEntries = entries.slice(0, 14);
   for (const entry of recentEntries) {
@@ -372,7 +548,10 @@ export function exportClinicalReportPdf(
     addParagraph(
       `[${typeLabel}] ${formatLongDate(entry.date)} ${entry.time} | Emocional: ${getMoodLabels(
         entry
-      )} | Ativação: Energia ${entry.energyLevel}/10, Sono ${entry.sleep.hours}h (${getSleepQualityLabel(
+      )} | Valência: ${num(entry.valence, '/10')} | Ativação: Energia ${num(
+        entry.energyLevel,
+        '/10'
+      )}, Sono ${num(entry.sleep.hours, 'h')} (${getSleepQualityLabel(
         entry.sleep.quality
       )}, red. sono: ${getReducedSleepLabel(entry.sleep.reducedNeed)}) | Duração: ${getDurationLabel(
         entry.stateDuration
@@ -386,13 +565,27 @@ export function exportClinicalReportPdf(
       addParagraph(`Sinais de ativação: ${getActivationLabels(entry.activationSignals)}`, 8.5);
     }
     if (isEp) {
-      const behaviorsStr = [...entry.behaviors.map((b) => b.itemLabel), entry.behaviorOtherText]
-        .filter(Boolean)
+      const behaviorsStr = [getBehaviorsText(entry), entry.behaviorOtherText]
+        .filter((v) => v && v !== NOT_INFORMED)
         .join(', ');
       addParagraph(
-        `Comportamento: ${behaviorsStr || '-'} | Vontade: ${entry.urgeIntensity}/10 | ${getAwarenessLabel(
-          entry.awareness
-        )} | Resistiu: ${getResistanceLabel(entry.resisted)}`,
+        `Comportamento: ${behaviorsStr || NOT_INFORMED} | Vontade: ${num(
+          entry.urgeIntensity,
+          '/10'
+        )} | ${getAwarenessLabel(entry.awareness)} | Resistiu: ${getResistanceLabel(
+          entry.resisted
+        )}`,
+        8.5
+      );
+    }
+    if (entry.safetyConcern && entry.safetyConcern !== 'nenhum') {
+      addParagraph(`Segurança: ${getSafetyLabel(entry)}`, 8.5, true, [148, 47, 25]);
+    }
+    if (entry.medication?.status || entry.medication?.effects) {
+      addParagraph(
+        `Medicação: ${getMedicationLabel(entry)}${
+          entry.medication?.effects ? ` - ${entry.medication.effects}` : ''
+        }`,
         8.5
       );
     }
@@ -405,9 +598,9 @@ export function exportClinicalReportPdf(
       entry.functionalImpact.note ||
       entry.notes ||
       entry.triggerContext ||
-      entry.functionalImpact.work !== 'nenhum' ||
-      entry.functionalImpact.relationships !== 'nenhum' ||
-      entry.functionalImpact.routine !== 'nenhum'
+      entry.functionalImpact.work ||
+      entry.functionalImpact.relationships ||
+      entry.functionalImpact.routine
     ) {
       addParagraph(
         [

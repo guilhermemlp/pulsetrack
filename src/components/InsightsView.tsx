@@ -15,6 +15,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   compulsao: 'Padrão compulsivo',
   gatilho: 'Gatilhos e impacto funcional',
   evolucao: 'Evolução no período',
+  neurodivergencia: 'Experiências neurodivergentes',
+  seguranca: 'Segurança e sofrimento grave',
 };
 
 export const InsightsView: React.FC<InsightsViewProps> = ({

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileSpreadsheet, FileText } from 'lucide-react';
 import { AnalyticsSummary, AppTab, PeriodFilter, PulseEntry } from '../types/pulsetrack';
 import { exportClinicalReportPdf, exportEntriesToCsv } from '../utils/exporters';
@@ -26,9 +26,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   onNavigate,
   onFeedback,
 }) => {
-  const handleDownloadPdf = () => {
-    exportClinicalReportPdf(filteredEntries, analytics, period, reportLabel);
-    onFeedback('Relatório clínico ampliado em PDF gerado e baixado.');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    try {
+      await exportClinicalReportPdf(filteredEntries, analytics, period, reportLabel);
+      onFeedback('Relatório clínico ampliado em PDF gerado e baixado.');
+    } catch {
+      onFeedback('Não foi possível gerar o PDF. Tente novamente.');
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   const handleDownloadCsv = () => {
@@ -96,7 +106,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <button
             type="button"
             onClick={handleDownloadPdf}
-            disabled={filteredEntries.length === 0}
+            disabled={filteredEntries.length === 0 || isExportingPdf}
+            aria-busy={isExportingPdf}
             className="min-h-[48px] px-6 py-2.5 rounded-xl text-base font-semibold inline-flex items-center gap-2 disabled:opacity-50 cursor-pointer"
             style={{
               backgroundColor: 'var(--color-primary-strong)',
@@ -104,7 +115,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             }}
           >
             <FileText className="w-5 h-5" aria-hidden="true" />
-            <span>Baixar relatório PDF</span>
+            <span>{isExportingPdf ? 'Gerando PDF…' : 'Baixar relatório PDF'}</span>
           </button>
         </div>
       </div>
@@ -196,10 +207,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               1. Estado emocional, ativação e sono
             </h3>
             <p className="text-sm sm:text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Sono médio de <strong className="font-mono tabular-nums">{analytics.avgSleepHours}h/noite</strong>, com redução da necessidade de sono em{' '}
-              <strong className="font-mono tabular-nums">{analytics.reducedSleepNeedRate}%</strong> dos registros ({analytics.reducedSleepNeedCount}x). Energia média de{' '}
-              <strong className="font-mono tabular-nums">{analytics.avgEnergy}/10</strong> e oscilação de humor percebida em{' '}
+              Sono médio de{' '}
+              <strong className="font-mono tabular-nums">
+                {analytics.avgSleepHours !== null ? `${analytics.avgSleepHours}h/noite` : 'não informado'}
+              </strong>
+              , com redução da necessidade de sono em{' '}
+              <strong className="font-mono tabular-nums">{analytics.reducedSleepNeedRate}%</strong> dos registros que
+              responderam ({analytics.reducedSleepNeedCount}x). Energia média de{' '}
+              <strong className="font-mono tabular-nums">
+                {analytics.avgEnergy !== null ? `${analytics.avgEnergy}/10` : 'não informada'}
+              </strong>{' '}
+              e valência média de{' '}
+              <strong className="font-mono tabular-nums">
+                {analytics.avgValence !== null ? `${analytics.avgValence}/10` : 'não informada'}
+              </strong>
+              . Oscilação de humor percebida em{' '}
               <strong className="font-mono tabular-nums">{bi.moodSwingPercent}%</strong> dos dias.
+              <span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                Campos não respondidos aparecem como “não informado” — nenhuma média usa valor presumido.
+              </span>
             </p>
             {activeSignals.length > 0 && (
               <p className="text-sm sm:text-base" style={{ color: 'var(--text-secondary)' }}>

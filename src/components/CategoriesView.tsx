@@ -14,6 +14,8 @@ interface CategoriesViewProps {
   onLoadSampleData: () => void;
   onClearAllEntries: () => void;
   onToggleFocusModeDefault: () => void;
+  onToggleShowSexualCategory: () => void;
+  onToggleTrackCycle: () => void;
   onFeedback: (msg: string) => void;
 }
 
@@ -29,6 +31,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onLoadSampleData,
   onClearAllEntries,
   onToggleFocusModeDefault,
+  onToggleShowSexualCategory,
+  onToggleTrackCycle,
   onFeedback,
 }) => {
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -532,6 +536,54 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               {preferences.focusModeDefault
                 ? 'Modo de foco padrão ao abrir: Ativado'
                 : 'Iniciar a aba Registrar em Modo de foco por padrão'}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onToggleShowSexualCategory}
+            aria-pressed={preferences.showSexualCategory}
+            className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium inline-flex items-center gap-2 cursor-pointer"
+            style={{
+              backgroundColor: preferences.showSexualCategory
+                ? 'var(--color-primary-soft)'
+                : 'var(--bg-elevated)',
+              borderColor: preferences.showSexualCategory
+                ? 'var(--color-primary-strong)'
+                : 'var(--border-hairline)',
+              color: preferences.showSexualCategory
+                ? 'var(--color-primary-strong)'
+                : 'var(--text-primary)',
+            }}
+          >
+            <span>
+              {preferences.showSexualCategory
+                ? 'Bloco Sexual / Intensidade no formulário: Ativado'
+                : 'Mostrar bloco Sexual / Intensidade no formulário (oculto por padrão)'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleTrackCycle}
+            aria-pressed={preferences.trackCycle}
+            className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium inline-flex items-center gap-2 cursor-pointer"
+            style={{
+              backgroundColor: preferences.trackCycle
+                ? 'var(--color-secondary-soft)'
+                : 'var(--bg-elevated)',
+              borderColor: preferences.trackCycle
+                ? 'var(--color-secondary)'
+                : 'var(--border-hairline)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span>
+              {preferences.trackCycle
+                ? 'Acompanhar fase do ciclo menstrual: Ativado'
+                : 'Acompanhar fase do ciclo menstrual (opcional)'}
             </span>
           </button>
         </div>
