@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultCategories } from '../data/defaults';
+import { renameItem } from './categories';
 import {
   AwarenessType,
   EntryType,
@@ -19,6 +20,7 @@ import {
   formatLongDate,
   formatShortDate,
   isEpisodeEntry,
+  summarizeCoverage,
   toLocalIsoDate,
 } from './analytics';
 import { normalizeEntry } from './storage';
@@ -191,6 +193,24 @@ describe('computeAnalytics', () => {
     expect(analytics.avgSleepHours).toBe(6.2);
     // Apenas episódios entram na média de intensidade da vontade: (9 + 5) / 2
     expect(analytics.avgUrgeIntensity).toBe(7);
+  });
+
+  it('sempre inclui o insight de segurança, com ou sem sofrimento grave', () => {
+    const analytics = computeAnalytics(buildScenario(), createDefaultCategories(), '7');
+    const safety = analytics.insights.find((i) => i.id === 'ins_safety');
+
+    expect(safety).toBeTruthy();
+    expect(safety?.summary).toMatch(/Nenhum registro do período/i);
+    expect(safety?.detail).toContain('CVV 188');
+    expect(safety?.basis).toContain('Base:');
+  });
+
+  it('só gera o insight de sono com pelo menos 3 registros de sono informado', () => {
+    const curto = computeAnalytics(buildScenario().slice(0, 2), createDefaultCategories(), '7');
+    expect(curto.insights.some((i) => i.id === 'ins_sleep')).toBe(false);
+
+    const completo = computeAnalytics(buildScenario(), createDefaultCategories(), '7');
+    expect(completo.insights.some((i) => i.id === 'ins_sleep')).toBe(true);
   });
 
   it('sinaliza redução da necessidade de sono e noites ruins', () => {
@@ -430,9 +450,12 @@ describe('insights cruzados', () => {
     );
 
     expect(insight).toBeTruthy();
-    expect(insight?.summary).toContain('100%');
+    // Base < 5: contagem em vez de percentual.
+    expect(insight?.summary).toContain('3 de 3 episódios');
+    expect(insight?.summary).not.toContain('100%');
     expect(insight?.summary).toMatch(/triste \/ vazio/i);
     expect(insight?.metricLabel).toBe('3 de 3 episódios');
+    expect(insight?.basis).toContain('Base: 3 de 3');
   });
 
   it('não gera insight de humor sem concentração suficiente', () => {
@@ -474,8 +497,28 @@ describe('insights cruzados', () => {
     );
 
     expect(insight).toBeTruthy();
-    expect(insight?.summary).toContain('100%');
+    expect(insight?.summary).toContain('3 de 3 episódios');
+    expect(insight?.summary).not.toContain('100%');
     expect(insight?.summary).toMatch(/automáticos/i);
+  });
+
+  it('usa percentual quando o denominador chega a 5', () => {
+    const entries = [1, 2, 3, 4, 5].map((i) =>
+      behaviorEpisode(`alim${i}`, i, {
+        energyLevel: 2,
+        mood: MoodStateId.TRISTE_VAZIO,
+        awareness: AwarenessType.CONSCIENTE,
+        category: alimentar,
+      })
+    );
+
+    const insight = computeAnalytics(entries, createDefaultCategories(), '30').insights.find(
+      (i) => i.id === 'ins_cat_mood_cat_alimentar'
+    );
+
+    expect(insight?.summary).toContain('100%');
+    expect(insight?.summary).toContain('5 de 5');
+    expect(insight?.basis).toContain('5 de 5');
   });
 
   it('destaca o comportamento concentrado em alta energia', () => {
@@ -504,7 +547,134 @@ describe('insights cruzados', () => {
 
     expect(insight).toBeTruthy();
     expect(insight?.summary).toContain('Compras impulsivas');
-    expect(insight?.summary).toContain('100%');
-    expect(insight?.summary).toContain('0%');
+    // 3 episódios de cada lado: contagem, sem delta percentual.
+    expect(insight?.summary).toContain('3 de 3 episódios de alta energia');
+    expect(insight?.summary).toContain('0 de 3 demais episódios');
+    expect(insight?.summary).not.toContain('100%');
+    expect(insight?.summary).not.toContain('pontos percentuais');
+  });
+});
+
+describe('cobertura do período', () => {
+  it('conta respondidos e base por eixo, sem inventar resposta', () => {
+    const entries = [
+      makeEntry({
+        entryType: EntryType.DAILY_CHECKIN,
+        date: dateOffset(1),
+        moods: [MoodStateId.ANSIOSO],
+        energyLevel: 6,
+        sleep: { hours: 7, quality: SleepQuality.BOA },
+      }),
+      makeEntry({
+        entryType: EntryType.EPISODE,
+        date: dateOffset(2),
+        moods: [MoodStateId.ANSIOSO],
+        behaviors: [
+          { categoryId: 'cat_financeira', categoryName: 'Financeira', itemId: 'fin_compras', itemLabel: 'Compras impulsivas' },
+        ],
+      }),
+    ];
+
+    const { coverage, totalEntries, totalEpisodes } = computeAnalytics(
+      entries,
+      createDefaultCategories(),
+      '30'
+    );
+
+    expect(totalEntries).toBe(2);
+    expect(totalEpisodes).toBe(1);
+    expect(coverage.mood).toEqual({ answered: 2, base: 2 });
+    expect(coverage.energy).toEqual({ answered: 1, base: 2 });
+    expect(coverage.sleepHours).toEqual({ answered: 1, base: 2 });
+    // Vontade e consciência só se aplicam a episódios.
+    expect(coverage.urge.base).toBe(totalEpisodes);
+    expect(coverage.behavior).toEqual({ answered: 1, base: 1 });
+    expect(coverage.safety).toEqual({ answered: 0, base: 2 });
+  });
+
+  it('resume a cobertura por seção do relatório', () => {
+    const entries = [makeEntry({ moods: [MoodStateId.NEUTRO], valence: 6, energyLevel: 5 })];
+    const analytics = computeAnalytics(entries, createDefaultCategories(), '30');
+
+    const emotional = summarizeCoverage(analytics.coverage).find((s) => s.id === 'emocional');
+
+    expect(emotional?.answered).toBe(2);
+    expect(emotional?.base).toBe(2);
+  });
+});
+
+describe('série histórica por itemId (schema v2)', () => {
+  const renameCompras = () =>
+    renameItem(createDefaultCategories(), 'cat_financeira', 'fin_compras', 'Compras por impulso');
+
+  function episode(label: string, itemId = 'fin_compras'): PulseEntry {
+    return makeEntry({
+      entryType: EntryType.EPISODE,
+      behaviors: [
+        {
+          categoryId: 'cat_financeira',
+          categoryName: 'Financeira',
+          itemId,
+          itemLabel: label,
+        },
+      ],
+    });
+  }
+
+  it('renomear não divide a contagem: rótulos antigo e novo caem no mesmo item', () => {
+    const entries = [episode('Compras impulsivas'), episode('Compras por impulso')];
+
+    const analytics = computeAnalytics(entries, renameCompras(), '30');
+    const financeira = analytics.categoryStats.find((c) => c.categoryId === 'cat_financeira')!;
+
+    expect(financeira.count).toBe(2);
+    expect(financeira.topItems).toEqual([{ label: 'Compras por impulso', count: 2 }]);
+  });
+
+  it('registro legado sem itemId é resolvido pelo alias do rótulo', () => {
+    const entries = [episode('Compras impulsivas', ''), episode('Compras por impulso')];
+
+    const analytics = computeAnalytics(entries, renameCompras(), '30');
+    const financeira = analytics.categoryStats.find((c) => c.categoryId === 'cat_financeira')!;
+
+    expect(financeira.topItems).toEqual([{ label: 'Compras por impulso', count: 2 }]);
+  });
+
+  it('os números não mudam com o rename — só o rótulo exibido', () => {
+    const entries = [episode('Compras impulsivas'), episode('Compras impulsivas')];
+    const before = computeAnalytics(entries, createDefaultCategories(), '30');
+    const after = computeAnalytics(entries, renameCompras(), '30');
+
+    const beforeFinanceira = before.categoryStats.find((c) => c.categoryId === 'cat_financeira')!;
+    const afterFinanceira = after.categoryStats.find((c) => c.categoryId === 'cat_financeira')!;
+
+    expect(afterFinanceira.count).toBe(beforeFinanceira.count);
+    expect(afterFinanceira.percentage).toBe(beforeFinanceira.percentage);
+    expect(afterFinanceira.harmCount).toBe(beforeFinanceira.harmCount);
+    expect(afterFinanceira.avgUrge).toBe(beforeFinanceira.avgUrge);
+    expect(beforeFinanceira.topItems[0].label).toBe('Compras impulsivas');
+    expect(afterFinanceira.topItems[0].label).toBe('Compras por impulso');
+  });
+
+  it('rótulo desconhecido continua contando pelo label (nada é descartado)', () => {
+    const entries = [
+      makeEntry({
+        entryType: EntryType.EPISODE,
+        behaviors: [
+          {
+            categoryId: 'cat_outros',
+            categoryName: 'Outros',
+            itemId: 'item_que_nao_existe',
+            itemLabel: 'Item removido do catálogo',
+          },
+        ],
+      }),
+    ];
+
+    const analytics = computeAnalytics(entries, createDefaultCategories(), '30');
+    const outros = analytics.categoryStats.find((c) => c.categoryId === 'cat_outros')!;
+
+    expect(outros.topItems[0].label).toBe('Item removido do catálogo');
+    expect(outros.count).toBe(1);
   });
 });

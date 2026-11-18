@@ -14,24 +14,40 @@ import { DailyLogForm } from './components/DailyLogForm';
 import { DashboardView } from './components/DashboardView';
 import { HistoryView } from './components/HistoryView';
 import { InsightsView } from './components/InsightsView';
+import { Onboarding } from './components/Onboarding';
 import { ReportsView } from './components/ReportsView';
 import { createDefaultCategories, createSampleEntries } from './data/defaults';
+import { applyPackages, CATEGORY_PACKAGES } from './data/packages';
 import {
   AppTab,
   BehaviorCategory,
+  BehaviorSubItem,
   EntryType,
+  Experiment,
+  ExperimentResult,
+  OnboardingProgress,
+  PackageId,
   PeriodFilter,
   PulseEntry,
+  RecordLevel,
   ThemeMode,
   UserPreferences,
 } from './types/pulsetrack';
-import { computeAnalytics, filterEntriesByPeriod } from './utils/analytics';
+import { computeAnalytics, filterEntriesByPeriod, toLocalIsoDate } from './utils/analytics';
 import {
+  clearFormDraft,
+  FormDraft,
   loadCategories,
   loadEntries,
+  loadExperiments,
+  loadFormDraft,
+  loadOnboardingProgress,
   loadPreferences,
   saveCategories,
   saveEntries,
+  saveExperiments,
+  saveFormDraft,
+  saveOnboardingProgress,
   savePreferences,
 } from './utils/storage';
 
@@ -47,12 +63,20 @@ export default function App() {
   const [entries, setEntries] = useState<PulseEntry[]>(() => loadEntries());
   const [categories, setCategories] = useState<BehaviorCategory[]>(() => loadCategories());
   const [preferences, setPreferences] = useState<UserPreferences>(() => loadPreferences());
+  /** Onboarding: só aparece enquanto não estiver concluído (nunca reabre sozinho). */
+  const [onboarding, setOnboarding] = useState<OnboardingProgress>(() => loadOnboardingProgress());
+  /** Hipóteses locais: nunca saem do aparelho e nunca recebem veredito automático. */
+  const [experiments, setExperiments] = useState<Experiment[]>(() => loadExperiments());
 
   const [activeTab, setActiveTab] = useState<AppTab>('registrar');
   const [period, setPeriod] = useState<PeriodFilter>('14');
   const [editingEntry, setEditingEntry] = useState<PulseEntry | null>(null);
+  /** Nível em que o registro reabre ao "salvar e completar depois". */
+  const [reopenLevel, setReopenLevel] = useState<RecordLevel | null>(null);
   const [focusMode, setFocusMode] = useState<boolean>(() => preferences.focusModeDefault);
   const [feedbackMessage, setFeedbackMessage] = useState<string>('');
+  /** Rascunho em andamento (para o card "Continuar registro" no Painel e no Histórico). */
+  const [draft, setDraft] = useState<FormDraft | null>(() => loadFormDraft());
 
   // Sincroniza tema e preferência de redução de movimento no documento HTML
   useEffect(() => {
@@ -75,6 +99,10 @@ export default function App() {
     saveCategories(categories);
   }, [categories]);
 
+  useEffect(() => {
+    saveExperiments(experiments);
+  }, [experiments]);
+
   // Limpa feedback automaticamente após alguns segundos (mantendo acesso via live region)
   useEffect(() => {
     if (!feedbackMessage) return;
@@ -84,6 +112,64 @@ export default function App() {
 
   const showFeedback = (msg: string) => {
     setFeedbackMessage(msg);
+  };
+
+  const patchPreferences = (patch: Partial<UserPreferences>) => {
+    setPreferences((prev) => ({ ...prev, ...patch }));
+  };
+
+  const persistOnboarding = (progress: OnboardingProgress) => {
+    saveOnboardingProgress(progress);
+    setOnboarding(progress);
+  };
+
+  const handleApplyPackages = (ids: PackageId[]) => {
+    setCategories((prev) => applyPackages(prev, ids));
+    patchPreferences({
+      packageIds: Array.from(new Set([...preferences.packageIds, ...ids])),
+    });
+    showFeedback(
+      ids.length === 1
+        ? 'Pacote adicionado ao seu catálogo. Nada do que já existia foi removido.'
+        : `${ids.length} pacotes adicionados ao seu catálogo. Nada do que já existia foi removido.`
+    );
+  };
+
+  const handleCreateExperiment = (experiment: Experiment) => {
+    setExperiments((prev) => [experiment, ...prev]);
+    showFeedback(
+      'Observação criada. Ela aparece no Painel enquanto a janela estiver aberta — nada é enviado para fora do aparelho.'
+    );
+  };
+
+  const handleCloseExperiment = (id: string, result: ExperimentResult, note: string) => {
+    const now = new Date().toISOString();
+    setExperiments((prev) =>
+      prev.map((experiment) =>
+        experiment.id === id
+          ? {
+              ...experiment,
+              status: 'finished',
+              result,
+              resultNote: note.trim(),
+              closedAt: now,
+              updatedAt: now,
+            }
+          : experiment
+      )
+    );
+    showFeedback('Conclusão registrada. A observação fica no histórico do Painel e no PDF.');
+  };
+
+  const handleRestartOnboarding = () => {
+    persistOnboarding({
+      status: 'in_progress',
+      step: 0,
+      skippedSteps: [],
+      completedAt: null,
+      lastSeenAt: new Date().toISOString(),
+    });
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const filteredEntries = useMemo(() => filterEntriesByPeriod(entries, period), [entries, period]);
@@ -98,10 +184,44 @@ export default function App() {
     if (tab !== 'registrar') {
       setFocusMode(false);
     }
+    // Mudar de tela é um bom momento para reler o rascunho (outra aba pode tê-lo alterado).
+    setDraft(loadFormDraft());
     window.scrollTo({ top: 0, behavior: preferences.reduceMotion ? 'auto' : 'smooth' });
   };
 
+  const handleContinueDraft = () => {
+    setEditingEntry(null);
+    setReopenLevel(null);
+    setActiveTab('registrar');
+    window.scrollTo({ top: 0, behavior: preferences.reduceMotion ? 'auto' : 'smooth' });
+  };
+
+  /** Rascunho de ontem não pode ser salvo com a data errada por distração. */
+  const handleMoveDraftToToday = () => {
+    const current = loadFormDraft();
+    if (!current) {
+      setDraft(null);
+      return;
+    }
+    const now = new Date();
+    const moved = saveFormDraft({
+      ...current.payload,
+      date: toLocalIsoDate(now),
+      time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    });
+    setDraft(moved);
+    handleContinueDraft();
+    showFeedback('Rascunho movido para hoje. Confira o que já estava respondido antes de salvar.');
+  };
+
+  const handleDiscardDraft = () => {
+    clearFormDraft();
+    setDraft(null);
+    showFeedback('Rascunho descartado. Nenhum registro foi alterado.');
+  };
+
   const handleSaveEntry = (entry: PulseEntry, isEdit: boolean) => {
+    setReopenLevel(null);
     if (isEdit) {
       setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
       setEditingEntry(null);
@@ -119,8 +239,83 @@ export default function App() {
 
   const handleEditEntry = (entry: PulseEntry) => {
     setEditingEntry(entry);
+    setReopenLevel(null);
     setActiveTab('registrar');
     window.scrollTo({ top: 0, behavior: preferences.reduceMotion ? 'auto' : 'smooth' });
+  };
+
+  /**
+   * Salva o registro e o reabre em edição no nível seguinte, para completar sem perder
+   * o que já foi respondido. Não é um formulário novo: é o mesmo registro em aberto.
+   */
+  const handleSaveAndCompleteLater = (
+    entry: PulseEntry,
+    isEdit: boolean,
+    nextLevel: RecordLevel
+  ) => {
+    if (isEdit) {
+      setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
+    } else {
+      setEntries((prev) => [entry, ...prev]);
+    }
+    setEditingEntry(entry);
+    setReopenLevel(nextLevel);
+    setActiveTab('registrar');
+    showFeedback('Registro salvo. Complete o que fizer sentido — o que já foi dito está guardado.');
+    window.scrollTo({ top: 0, behavior: preferences.reduceMotion ? 'auto' : 'smooth' });
+  };
+
+  /** Cria um subitem direto do formulário e devolve o item persistido. */
+  const handleCreateBehaviorItem = (
+    categoryId: string,
+    label: string
+  ): { id: string; label: string } | null => {
+    const trimmed = label.trim();
+    if (!trimmed) return null;
+    const category = categories.find((c) => c.id === categoryId);
+    if (!category) return null;
+
+    const normalize = (value: string) => value.trim().toLocaleLowerCase('pt-BR');
+    const existing = category.items.find((item) => normalize(item.label) === normalize(trimmed));
+    if (existing) {
+      // Item existente mas desativado volta a ficar visível; nenhum id muda.
+      if (!existing.active) {
+        setCategories((prev) =>
+          prev.map((c) =>
+            c.id === categoryId
+              ? {
+                  ...c,
+                  items: c.items.map((item) =>
+                    item.id === existing.id ? { ...item, active: true } : item
+                  ),
+                }
+              : c
+          )
+        );
+      }
+      return { id: existing.id, label: existing.label };
+    }
+
+    const newItem: BehaviorSubItem = {
+      id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      label: trimmed,
+      active: true,
+      // Item criado agora: a data é conhecida e registrada.
+      createdAt: new Date().toISOString(),
+    };
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.id === categoryId
+          ? {
+              ...c,
+              items: [...c.items, newItem],
+              version: 2,
+              updatedAt: newItem.createdAt,
+            }
+          : c
+      )
+    );
+    return { id: newItem.id, label: newItem.label };
   };
 
   const handleDeleteEntry = (id: string) => {
@@ -151,10 +346,12 @@ export default function App() {
   const handleImportBackup = (
     importedEntries: PulseEntry[],
     importedCategories: BehaviorCategory[],
-    importedPrefs?: UserPreferences
+    importedPrefs?: UserPreferences,
+    importedExperiments?: Experiment[]
   ) => {
     setEntries(importedEntries);
     setCategories(importedCategories);
+    if (importedExperiments) setExperiments(importedExperiments);
     if (importedPrefs) {
       setPreferences((prev) => ({ ...prev, ...importedPrefs }));
     }
@@ -180,6 +377,27 @@ export default function App() {
   };
 
   const isFocusLayout = focusMode && activeTab === 'registrar';
+
+  if (onboarding.status !== 'completed') {
+    return (
+      <Onboarding
+        progress={onboarding}
+        preferences={preferences}
+        availablePackageIds={CATEGORY_PACKAGES.map((pkg) => pkg.id).filter(
+          (id) => !preferences.packageIds.includes(id)
+        )}
+        onSaveProgress={persistOnboarding}
+        onChangePreferences={patchPreferences}
+        onApplyPackages={handleApplyPackages}
+        onFinish={() => {
+          setActiveTab('registrar');
+          showFeedback(
+            'Tudo pronto. Você pode ajustar qualquer escolha depois em Categorias — nada aqui é diagnóstico.'
+          );
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -369,6 +587,7 @@ export default function App() {
                 return next;
               });
             }}
+            entries={entries}
             onSaveEntry={handleSaveEntry}
             onCancelEdit={() => {
               setEditingEntry(null);
@@ -377,6 +596,14 @@ export default function App() {
             theme={preferences.theme}
             showSexualCategory={preferences.showSexualCategory}
             trackCycle={preferences.trackCycle}
+            defaultRecordLevel={preferences.defaultRecordLevel}
+            reduceMotion={preferences.reduceMotion}
+            reopenLevel={reopenLevel}
+            onCreateBehaviorItem={handleCreateBehaviorItem}
+            onSaveAndCompleteLater={handleSaveAndCompleteLater}
+            onDraftChange={(next) => {
+              setDraft(next);
+            }}
           />
         )}
 
@@ -389,6 +616,13 @@ export default function App() {
             onNavigate={handleNavigate}
             onLoadSampleData={handleLoadSampleData}
             theme={preferences.theme}
+            draft={draft}
+            onContinueDraft={handleContinueDraft}
+            onMoveDraftToToday={handleMoveDraftToToday}
+            onDiscardDraft={handleDiscardDraft}
+            experiments={experiments}
+            entries={entries}
+            onCloseExperiment={handleCloseExperiment}
           />
         )}
 
@@ -399,6 +633,7 @@ export default function App() {
             period={period}
             onChangePeriod={setPeriod}
             onNavigate={handleNavigate}
+            onCreateExperiment={handleCreateExperiment}
           />
         )}
 
@@ -409,6 +644,10 @@ export default function App() {
             onEditEntry={handleEditEntry}
             onDeleteEntry={handleDeleteEntry}
             onNavigate={handleNavigate}
+            draft={draft}
+            onContinueDraft={handleContinueDraft}
+            onMoveDraftToToday={handleMoveDraftToToday}
+            onDiscardDraft={handleDiscardDraft}
           />
         )}
 
@@ -416,6 +655,7 @@ export default function App() {
           <CategoriesView
             categories={categories}
             entries={entries}
+            experiments={experiments}
             preferences={preferences}
             onUpdateCategories={setCategories}
             onResetDefaultCategories={handleResetDefaultCategories}
@@ -456,6 +696,7 @@ export default function App() {
                 return { ...prev, trackCycle: next };
               });
             }}
+            onRestartOnboarding={handleRestartOnboarding}
             onFeedback={showFeedback}
           />
         )}
@@ -471,6 +712,7 @@ export default function App() {
             onChangeReportLabel={(val) => setPreferences((prev) => ({ ...prev, reportLabel: val }))}
             onNavigate={handleNavigate}
             onFeedback={showFeedback}
+            experiments={experiments}
           />
         )}
       </main>

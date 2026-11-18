@@ -24,6 +24,8 @@ import {
   ResistanceResult,
 } from '../types/pulsetrack';
 import { formatLongDate, isEpisodeEntry } from '../utils/analytics';
+import { FormDraft } from '../utils/storage';
+import { DraftResumeCard } from './DraftResumeCard';
 
 interface HistoryViewProps {
   entries: PulseEntry[];
@@ -31,6 +33,10 @@ interface HistoryViewProps {
   onEditEntry: (entry: PulseEntry) => void;
   onDeleteEntry: (id: string) => void;
   onNavigate: (tab: AppTab) => void;
+  draft: FormDraft | null;
+  onContinueDraft: () => void;
+  onMoveDraftToToday: () => void;
+  onDiscardDraft: () => void;
 }
 
 type TypeFilter = 'all' | 'episodes' | 'checkins';
@@ -41,6 +47,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onEditEntry,
   onDeleteEntry,
   onNavigate,
+  draft,
+  onContinueDraft,
+  onMoveDraftToToday,
+  onDiscardDraft,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
@@ -148,10 +158,21 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       ? CYCLE_PHASE_OPTIONS.find((o) => o.id === entry.cyclePhase)?.label ?? null
       : null;
 
+  const draftCard = draft ? (
+    <DraftResumeCard
+      draft={draft}
+      onContinue={onContinueDraft}
+      onMoveToToday={onMoveDraftToToday}
+      onDiscard={onDiscardDraft}
+    />
+  ) : null;
+
   if (entries.length === 0) {
     return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        {draftCard}
       <section
-        className="rounded-2xl border p-8 text-center max-w-2xl mx-auto space-y-4"
+        className="rounded-2xl border p-8 text-center space-y-4"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
       >
         <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -169,11 +190,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           Criar primeiro registro
         </button>
       </section>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {draftCard}
+
       <div>
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
           Histórico longitudinal

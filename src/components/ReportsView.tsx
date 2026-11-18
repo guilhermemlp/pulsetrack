@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
-import { FileSpreadsheet, FileText } from 'lucide-react';
-import { AnalyticsSummary, AppTab, PeriodFilter, PulseEntry } from '../types/pulsetrack';
-import { exportClinicalReportPdf, exportEntriesToCsv } from '../utils/exporters';
+import { FileSpreadsheet, FileText, Sparkles } from 'lucide-react';
+import {
+  AnalyticsSummary,
+  AppTab,
+  Experiment,
+  PeriodFilter,
+  PulseEntry,
+} from '../types/pulsetrack';
+import {
+  exportClinicalReportPdf,
+  exportEntriesToCsv,
+  exportExecutiveReportPdf,
+} from '../utils/exporters';
+import { buildExecutiveReport } from '../utils/executive';
 
 interface ReportsViewProps {
   filteredEntries: PulseEntry[];
@@ -13,6 +24,7 @@ interface ReportsViewProps {
   onChangeReportLabel: (val: string) => void;
   onNavigate: (tab: AppTab) => void;
   onFeedback: (msg: string) => void;
+  experiments: Experiment[];
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
@@ -25,14 +37,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   onChangeReportLabel,
   onNavigate,
   onFeedback,
+  experiments,
 }) => {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingExec, setIsExportingExec] = useState(false);
 
   const handleDownloadPdf = async () => {
     if (isExportingPdf) return;
     setIsExportingPdf(true);
     try {
-      await exportClinicalReportPdf(filteredEntries, analytics, period, reportLabel);
+      await exportClinicalReportPdf(
+        filteredEntries,
+        analytics,
+        period,
+        reportLabel,
+        experiments
+      );
       onFeedback('Relatório clínico ampliado em PDF gerado e baixado.');
     } catch {
       onFeedback('Não foi possível gerar o PDF. Tente novamente.');
@@ -41,8 +61,27 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
   };
 
+  const handleDownloadExecutive = async () => {
+    if (isExportingExec) return;
+    setIsExportingExec(true);
+    try {
+      await exportExecutiveReportPdf(
+        analytics,
+        filteredEntries,
+        experiments,
+        period,
+        reportLabel
+      );
+      onFeedback('Relatório executivo de 1 página gerado e baixado.');
+    } catch {
+      onFeedback('Não foi possível gerar o relatório executivo. Tente novamente.');
+    } finally {
+      setIsExportingExec(false);
+    }
+  };
+
   const handleDownloadCsv = () => {
-    exportEntriesToCsv(filteredEntries, period);
+    exportEntriesToCsv(filteredEntries, period, analytics);
     onFeedback('Planilha CSV longitudinal exportada com sucesso.');
   };
 
@@ -74,6 +113,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const cy = analytics.cycleAnalysis;
   const fi = analytics.functionalImpactSummary;
   const activeSignals = analytics.activationSignalStats.filter((s) => s.count > 0);
+  const executive = buildExecutiveReport(analytics, experiments, filteredEntries, period);
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -101,6 +141,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           >
             <FileSpreadsheet className="w-5 h-5" aria-hidden="true" />
             <span>Exportar CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadExecutive}
+            disabled={filteredEntries.length === 0 || isExportingExec}
+            aria-busy={isExportingExec}
+            className="min-h-[48px] px-5 py-2.5 rounded-xl border text-base font-medium inline-flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-strong)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <Sparkles className="w-5 h-5" aria-hidden="true" />
+            <span>{isExportingExec ? 'Gerando executivo…' : 'Relatório executivo (1 página)'}</span>
           </button>
 
           <button
@@ -170,6 +226,91 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           />
         </div>
       </section>
+
+      {filteredEntries.length > 0 && (
+        <section
+          aria-label="Prévia do relatório executivo"
+          className="rounded-2xl border p-6 space-y-4"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-hairline)',
+            boxShadow: 'var(--shadow-soft)',
+          }}
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Prévia: relatório executivo (1 página)
+            </h2>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Dados brutos continuam nos exports completos
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Padrão dominante
+            </p>
+            <p className="text-base font-semibold" style={{ color: 'var(--color-primary-strong)' }}>
+              {executive.dominantPattern.title}
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {executive.dominantPattern.detail}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Três insights principais
+            </p>
+            {executive.insights.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Nenhum insight com base suficiente neste período.
+              </p>
+            ) : (
+              <ul className="list-disc pl-5 space-y-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {executive.insights.map((insight) => (
+                  <li key={insight.id}>
+                    <strong style={{ color: 'var(--text-primary)' }}>{insight.title}</strong> —{' '}
+                    {insight.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Evolução</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {executive.evolution.label}. {executive.evolution.description}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                Cobertura de dados
+              </p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {executive.coverage.length === 0
+                  ? 'Nenhum eixo com base no período.'
+                  : executive.coverage
+                      .map((entry) => `${entry.label}: ${entry.answered} de ${entry.base}`)
+                      .join(' · ')}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Experimentos observados
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {executive.experiments.length === 0
+                ? 'Nenhuma hipótese acompanhada nas datas deste período.'
+                : `${executive.experiments.length} observação(ões) com janela neste período.`}
+            </p>
+          </div>
+        </section>
+      )}
 
       {filteredEntries.length === 0 ? (
         <div

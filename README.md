@@ -6,7 +6,10 @@ PulseTrack é um web app simples, offline-first e acessível, criado para ajudar
 
 ### Principais funcionalidades
 
-- Registro diário de humor, energia, gatilhos e comportamentos
+- Onboarding em 4 telas (retomável) com pacotes opcionais de categorias: TDAH, bipolaridade, compulsões, autismo/sensorial e geral
+- Registro diário em três profundidades (Rápido, Padrão, Completo), separando impulso contido de comportamento realizado
+- Rascunho automático com retomada e opção de mover um rascunho de ontem para hoje
+- Observações (hipóteses pessoais) com janela de datas e comparação com o período anterior, sem veredito automático
 - Categorias personalizáveis (Validação, Financeira, Alimentar, Digital, Sexual e Outros)
 - Acompanhamento de oscilações de humor e relação com impulsividade
 - Insights automáticos sobre padrões: humor predominante por categoria, taxa de ação automática por categoria, comportamentos concentrados em alta energia e alerta de piora/melhora em relação ao período anterior

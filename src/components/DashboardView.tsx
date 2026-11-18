@@ -1,6 +1,17 @@
 import React from 'react';
-import { AnalyticsSummary, AppTab, PeriodFilter, ThemeMode } from '../types/pulsetrack';
+import {
+  AnalyticsSummary,
+  AppTab,
+  Experiment,
+  ExperimentResult,
+  PeriodFilter,
+  PulseEntry,
+  ThemeMode,
+} from '../types/pulsetrack';
+import { FormDraft } from '../utils/storage';
 import { DashboardCharts } from './Charts';
+import { DraftResumeCard } from './DraftResumeCard';
+import { ExperimentsPanel } from './ExperimentsPanel';
 
 interface DashboardViewProps {
   analytics: AnalyticsSummary;
@@ -10,6 +21,13 @@ interface DashboardViewProps {
   onNavigate: (tab: AppTab) => void;
   onLoadSampleData: () => void;
   theme: ThemeMode;
+  draft: FormDraft | null;
+  onContinueDraft: () => void;
+  onMoveDraftToToday: () => void;
+  onDiscardDraft: () => void;
+  experiments: Experiment[];
+  entries: PulseEntry[];
+  onCloseExperiment: (id: string, result: ExperimentResult, note: string) => void;
 }
 
 const PERIOD_OPTIONS: Array<{ value: PeriodFilter; label: string }> = [
@@ -28,11 +46,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onLoadSampleData,
   theme,
+  draft,
+  onContinueDraft,
+  onMoveDraftToToday,
+  onDiscardDraft,
+  experiments,
+  entries,
+  onCloseExperiment,
 }) => {
+  const draftCard = draft ? (
+    <DraftResumeCard
+      draft={draft}
+      onContinue={onContinueDraft}
+      onMoveToToday={onMoveDraftToToday}
+      onDiscard={onDiscardDraft}
+    />
+  ) : null;
+
   if (totalAllEntries === 0) {
     return (
+      <div className="max-w-2xl mx-auto my-6 space-y-4">
+        {draftCard}
       <section
-        className="rounded-2xl border p-8 sm:p-12 text-center max-w-2xl mx-auto my-6 space-y-6"
+        className="rounded-2xl border p-8 sm:p-12 text-center space-y-6"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-hairline)',
@@ -74,6 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       </section>
+      </div>
     );
   }
 
@@ -83,6 +120,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-8">
+      {draftCard}
+
       {/* Cabeçalho e filtro de período */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -124,6 +163,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           })}
         </div>
       </div>
+
+      <ExperimentsPanel
+        experiments={experiments}
+        entries={entries}
+        onCloseExperiment={onCloseExperiment}
+      />
 
       {analytics.totalEntries === 0 ? (
         <section

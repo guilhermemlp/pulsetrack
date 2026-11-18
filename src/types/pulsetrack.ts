@@ -136,6 +136,13 @@ export enum CyclePhase {
   NAO_SE_APLICA = 'nao_se_aplica',
 }
 
+/**
+ * Profundidade escolhida para o registro. É uma decisão de UX (não clínica):
+ * descreve quantos eixos a pessoa quis revisar agora, para que a adesão diária não
+ * dependa de preencher tudo. Nunca altera o valor das métricas.
+ */
+export type RecordLevel = 'rapido' | 'padrao' | 'completo';
+
 export type AppTab = 'registrar' | 'painel' | 'insights' | 'historico' | 'categorias' | 'relatorios';
 
 export type PeriodFilter = '7' | '14' | '30' | '90' | 'all';
@@ -155,6 +162,101 @@ export interface BehaviorSubItem {
   label: string;
   active: boolean;
   isFreeText?: boolean;
+  /** Origem do item: omitido em itens antigos/personalizados. */
+  source?: 'default' | 'package';
+  /** Item mantido apenas para o histórico: não aparece no formulário, mas nunca é apagado. */
+  archived?: boolean;
+  /**
+   * ISO de criação. `null` quando o item já existia antes do schema v2 — a data real é
+   * desconhecida e não é inventada na migração.
+   */
+  createdAt: string | null;
+  /** Rótulos anteriores do mesmo item (renomear não cria um item novo). */
+  aliases?: string[];
+}
+
+/** Pacotes oferecidos no onboarding. Reutilizam categorias e itens já existentes. */
+export type PackageId =
+  | 'pkg_tdah'
+  | 'pkg_bipolar'
+  | 'pkg_compulsoes'
+  | 'pkg_autismo_sensorial'
+  | 'pkg_geral';
+
+/** Áreas que a pessoa quer observar (T1). Só orientam a apresentação do app. */
+export type FocusArea =
+  | 'emocional'
+  | 'ativacao'
+  | 'sono'
+  | 'comportamentos'
+  | 'gatilhos'
+  | 'medicacao'
+  | 'ciclo'
+  | 'seguranca';
+
+/* ------------------------------------------------------------------ *
+ * Experimentos / hipóteses do usuário (100% locais, sem inferência de
+ * veredito: o app mostra números e a pessoa registra a conclusão).
+ * ------------------------------------------------------------------ */
+
+export type ExperimentMetric =
+  | 'urge'
+  | 'energy'
+  | 'sleepHours'
+  | 'valence'
+  | 'episodes'
+  | 'behaviorItems';
+
+export type ExperimentStatus = 'active' | 'finished';
+
+/** As três saídas válidas de encerramento — nenhuma delas é "cura" ou "falha". */
+export type ExperimentResult = 'difference' | 'no_difference' | 'insufficient_data';
+
+export interface Experiment {
+  id: string;
+  /** Hipótese em linguagem do próprio usuário, ex.: "ansiedade aumenta à noite". */
+  hypothesis: string;
+  /** Eixo observado na janela. */
+  metric: ExperimentMetric;
+  /** YYYY-MM-DD — início (inclusive). */
+  startDate: string;
+  /** YYYY-MM-DD — fim (inclusive). */
+  endDate: string;
+  /** Marcador livre para agrupar observações (não filtra registros). */
+  tag?: string;
+  status: ExperimentStatus;
+  /** ISO; `null` em registros importados sem a data (nunca inventada). */
+  createdAt: string | null;
+  updatedAt: string | null;
+  /** Conclusão registrada pelo usuário; `null` enquanto a janela está aberta. */
+  result: ExperimentResult | null;
+  /** Observação livre do usuário no encerramento. */
+  resultNote: string;
+  closedAt: string | null;
+  /** Insight que originou a observação, quando houver. */
+  sourceInsightId?: string;
+}
+
+/**
+ * Rascunho interno de perfil (T2). Nunca é exibido em relatório, exportação ou
+ * analytics: serve apenas para o app não repetir perguntas e ajustar a linguagem.
+ */
+export type ProfileHint =
+  | 'neurodivergente'
+  | 'humor_oscilante'
+  | 'compulsoes'
+  | 'ansiedade'
+  | 'em_investigacao'
+  | 'prefiro_nao_dizer';
+
+export interface OnboardingProgress {
+  status: 'not_started' | 'in_progress' | 'completed';
+  /** Tela em que a pessoa parou (0–3). */
+  step: number;
+  /** Telas puladas explicitamente; não voltam sozinhas. */
+  skippedSteps: number[];
+  completedAt: string | null;
+  lastSeenAt: string | null;
 }
 
 export interface BehaviorCategory {
@@ -163,6 +265,14 @@ export interface BehaviorCategory {
   color: string;
   active: boolean;
   items: BehaviorSubItem[];
+  /** Categoria mantida apenas para o histórico (tem episódios registrados). */
+  archived?: boolean;
+  /** Versão do schema desta categoria. A v1 era implícita; a v2 é explícita. */
+  version: 2;
+  /** ISO da última alteração estrutural; `null` quando anterior ao schema v2. */
+  updatedAt: string | null;
+  /** Pacote que ativou esta categoria, quando houver. */
+  packageId?: PackageId;
 }
 
 export interface SelectedBehavior {
@@ -208,6 +318,8 @@ export interface PulseEntry {
   id: string;
   /** Distingue check-in diário independente de episódio comportamental */
   entryType: EntryType;
+  /** Profundidade usada neste registro. Registros antigos ficam `null` (nunca inferido). */
+  depth: RecordLevel | null;
   /** Formato YYYY-MM-DD */
   date: string;
   /** Formato HH:mm */
@@ -263,7 +375,18 @@ export interface UserPreferences {
   showSexualCategory: boolean;
   /** Acompanhamento de fase do ciclo menstrual (opcional). */
   trackCycle: boolean;
+  /** Profundidade inicial do formulário de registro. */
+  defaultRecordLevel: RecordLevel;
   reportLabel: string;
+  /** Áreas escolhidas no onboarding (T1). */
+  focusAreas: FocusArea[];
+  /** Rascunho interno de perfil (T2). Não é diagnóstico nem aparece em relatórios. */
+  profileHint: ProfileHint | null;
+  /** Pacotes já oferecidos/aplicados — evitam oferta repetida (T3). */
+  packageIds: PackageId[];
+  /** Lembrete diário opt-in (preferência local, sem envio automático). */
+  reminderOptIn: boolean;
+  reminderTime: string;
 }
 
 export interface CategoryStat {
@@ -357,9 +480,38 @@ export interface InsightItem {
   summary: string;
   detail: string;
   metricLabel: string;
+  /** Sobre o que o insight conta (ex.: "9 de 12 registros com sono informado"). */
+  basis: string;
+}
+
+/** Cada eixo que o relatório audita: quantos registros poderiam responder e quantos responderam. */
+export type MetricKey =
+  | 'mood'
+  | 'valence'
+  | 'energy'
+  | 'sleepHours'
+  | 'sleepQuality'
+  | 'stateDuration'
+  | 'activationSignals'
+  | 'behavior'
+  | 'urge'
+  | 'awareness'
+  | 'functionalImpact'
+  | 'medication'
+  | 'safety'
+  | 'notes'
+  | 'cycle';
+
+export interface MetricCoverage {
+  /** Registros com o campo respondido. */
+  answered: number;
+  /** Registros aos quais o campo se aplica (ex.: urge só em episódios). */
+  base: number;
 }
 
 export interface AnalyticsSummary {
+  /** "informado em X de Y" por eixo — base honesta de cada seção do relatório. */
+  coverage: Record<MetricKey, MetricCoverage>;
   totalEntries: number;
   totalEpisodes: number;
   totalCheckinsOnly: number;

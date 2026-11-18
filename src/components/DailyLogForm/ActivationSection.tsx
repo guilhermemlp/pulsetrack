@@ -26,6 +26,8 @@ interface ActivationSectionProps {
   stateDuration: StateDuration | null;
   activationSignals: ActivationSignal[];
   compact: boolean;
+  /** Usado quando o formulário já mostra o título do pilar (seção recolhível). */
+  embedded?: boolean;
   onChangeEnergyLevel: (value: number | null) => void;
   onChangeSleepHours: (value: number | null) => void;
   onChangeSleepQuality: (value: SleepQuality | null) => void;
@@ -72,6 +74,7 @@ export const ActivationSection: React.FC<ActivationSectionProps> = React.memo(
     stateDuration,
     activationSignals,
     compact,
+    embedded = false,
     onChangeEnergyLevel,
     onChangeSleepHours,
     onChangeSleepQuality,
@@ -153,9 +156,11 @@ export const ActivationSection: React.FC<ActivationSectionProps> = React.memo(
         }}
       >
         <div>
-          <p className="text-xs font-medium" style={{ color: 'var(--color-primary-strong)' }}>
-            Pilar 2 · Estado de ativação e sono
-          </p>
+          {!embedded && (
+            <p className="text-xs font-medium" style={{ color: 'var(--color-primary-strong)' }}>
+              Pilar 2 · Estado de ativação e sono
+            </p>
+          )}
           <h2
             id="sec-activation"
             className="text-xl font-semibold mt-0.5"

@@ -1,4 +1,11 @@
 import {
+  behaviorItemKey,
+  buildItemLookup,
+  canonicalItemLabel,
+  resolveBehaviorItem,
+  type ItemLookup,
+} from './categories';
+import {
   ACTIVATION_SIGNAL_OPTIONS,
   CYCLE_PHASE_OPTIONS,
   MOOD_DEFINITIONS,
@@ -20,6 +27,8 @@ import {
   EntryType,
   FunctionalImpactLevel,
   InsightItem,
+  MetricCoverage,
+  MetricKey,
   MoodBehaviorStat,
   MoodStateId,
   PeriodFilter,
@@ -73,6 +82,24 @@ function metric(value: number | null, suffix = ''): string {
   return value === null ? 'não informado' : `${value}${suffix}`;
 }
 
+/** Abaixo disso um percentual distorce mais do que informa: usa-se contagem. */
+export const MIN_PERCENT_BASE = 5;
+
+/**
+ * Proporção legível e honesta: percentual só com denominador ≥ 5; abaixo disso,
+ * "2 de 3 episódios". Nunca devolve "0%" nem "—" sem dizer sobre o que conta.
+ */
+function proportion(count: number, base: number, noun: string): string {
+  if (base <= 0) return `nenhum ${noun}`;
+  if (base < MIN_PERCENT_BASE) return `${count} de ${base} ${noun}`;
+  return `${Math.round((count / base) * 100)}% dos ${noun} (${count} de ${base})`;
+}
+
+/** Frase de base declarada, exibida em todo insight. */
+function baseOf(count: number, base: number, noun: string): string {
+  return `Base: ${count} de ${base} ${noun}.`;
+}
+
 export function getPeriodDays(period: PeriodFilter, entries: PulseEntry[]): number {
   if (period !== 'all') {
     return Number(period);
@@ -99,17 +126,40 @@ export function filterEntriesByPeriod(entries: PulseEntry[], period: PeriodFilte
     .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
 }
 
-function getTopItemLabels(entries: PulseEntry[], limit = 3): string[] {
-  const counts = new Map<string, number>();
+/**
+ * Conta itens por identidade (itemId, com fallback para label em registros legados)
+ * e devolve os rótulos atuais. Renomear um item não divide a contagem: o id é a chave.
+ */
+function countBehaviorItems(
+  entries: PulseEntry[],
+  lookup: ItemLookup
+): Map<string, { label: string; count: number }> {
+  const counts = new Map<string, { label: string; count: number }>();
   for (const entry of entries) {
-    for (const b of entry.behaviors) {
-      counts.set(b.itemLabel, (counts.get(b.itemLabel) ?? 0) + 1);
+    const seen = new Set<string>();
+    for (const behavior of entry.behaviors) {
+      const key = behaviorItemKey(behavior, lookup);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const existing = counts.get(key);
+      counts.set(key, {
+        label: canonicalItemLabel(behavior, lookup),
+        count: (existing?.count ?? 0) + 1,
+      });
     }
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
+  return counts;
+}
+
+function getTopItemLabels(
+  entries: PulseEntry[],
+  lookup: ItemLookup,
+  limit = 3
+): string[] {
+  return [...countBehaviorItems(entries, lookup).values()]
+    .sort((a, b) => b.count - a.count)
     .slice(0, limit)
-    .map(([label]) => label);
+    .map((item) => item.label);
 }
 
 export function isEpisodeEntry(entry: PulseEntry): boolean {
@@ -308,6 +358,40 @@ function computeCycleAnalysis(allEntries: PulseEntry[], periodEntries: PulseEntr
   };
 }
 
+/** Agrupamento de cobertura por seção do relatório ("informado em X de Y"). */
+export const COVERAGE_SECTIONS: Array<{ id: string; label: string; metrics: MetricKey[] }> = [
+  { id: 'emocional', label: 'Estado emocional', metrics: ['mood', 'valence'] },
+  {
+    id: 'ativacao',
+    label: 'Ativação e sono',
+    metrics: ['energy', 'sleepHours', 'sleepQuality', 'stateDuration', 'activationSignals'],
+  },
+  { id: 'comportamento', label: 'Comportamento e impulso', metrics: ['behavior', 'urge', 'awareness'] },
+  {
+    id: 'contexto',
+    label: 'Impacto, medicação e segurança',
+    metrics: ['functionalImpact', 'medication', 'safety', 'cycle', 'notes'],
+  },
+];
+
+export interface SectionCoverage {
+  id: string;
+  label: string;
+  answered: number;
+  base: number;
+}
+
+/** Soma os eixos de cada seção; seções sem base não inventam percentual. */
+export function summarizeCoverage(
+  coverage: Record<MetricKey, MetricCoverage>
+): SectionCoverage[] {
+  return COVERAGE_SECTIONS.map((section) => {
+    const answered = section.metrics.reduce((sum, key) => sum + (coverage[key]?.answered ?? 0), 0);
+    const base = section.metrics.reduce((sum, key) => sum + (coverage[key]?.base ?? 0), 0);
+    return { id: section.id, label: section.label, answered, base };
+  });
+}
+
 /**
  * Motor analítico longitudinal offline do PulseTrack.
  */
@@ -317,6 +401,7 @@ export function computeAnalytics(
   period: PeriodFilter
 ): AnalyticsSummary {
   const entries = filterEntriesByPeriod(allEntries, period);
+  const itemLookup = buildItemLookup(categories);
   const periodDays = getPeriodDays(period, entries);
   const totalEntries = entries.length;
 
@@ -511,7 +596,7 @@ export function computeAnalytics(
       urgeSum: number;
       urgeCount: number;
       harmEntryIds: Set<string>;
-      itemCounts: Map<string, number>;
+      itemCounts: Map<string, { label: string; count: number }>;
     }
   >();
 
@@ -540,17 +625,23 @@ export function computeAnalytics(
         }
         seenCatsInEntry.add(b.categoryId);
       }
-      bucket.itemCounts.set(b.itemLabel, (bucket.itemCounts.get(b.itemLabel) ?? 0) + 1);
+      // Agrupa por identidade do item; o rótulo exibido é o atual do catálogo.
+      const itemKey = behaviorItemKey(b, itemLookup);
+      const existing = bucket.itemCounts.get(itemKey);
+      bucket.itemCounts.set(itemKey, {
+        label: canonicalItemLabel(b, itemLookup),
+        count: (existing?.count ?? 0) + 1,
+      });
     }
   }
 
   const categoryStats: CategoryStat[] = [...catAgg.values()]
     .map((bucket) => {
       const count = bucket.entryIds.size;
-      const topItems = [...bucket.itemCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
+      const topItems = [...bucket.itemCounts.values()]
+        .sort((a, b) => b.count - a.count)
         .slice(0, 4)
-        .map(([label, itemCount]) => ({ label, count: itemCount }));
+        .map((item) => ({ label: item.label, count: item.count }));
 
       return {
         categoryId: bucket.categoryId,
@@ -704,7 +795,7 @@ export function computeAnalytics(
     highEnergyPercent:
       totalEpisodes > 0 ? Math.round((highEnergyList.length / totalEpisodes) * 100) : 0,
     highEnergyAvgUrge: averageOrNull(reported(highEnergyList.map((e) => e.urgeIntensity))),
-    highEnergyTopBehaviors: getTopItemLabels(highEnergyList, 3),
+    highEnergyTopBehaviors: getTopItemLabels(highEnergyList, itemLookup, 3),
 
     lowEnergyReliefEpisodes: lowEnergyReliefList.length,
     lowEnergyPercent:
@@ -713,7 +804,7 @@ export function computeAnalytics(
       lowEnergyReliefList.length > 0
         ? Math.round((lowEnergyAutoCount / lowEnergyReliefList.length) * 100)
         : 0,
-    lowEnergyTopBehaviors: getTopItemLabels(lowEnergyReliefList, 3),
+    lowEnergyTopBehaviors: getTopItemLabels(lowEnergyReliefList, itemLookup, 3),
 
     moodSwingEntries: moodSwingList.length,
     moodSwingPercent: totalEntries > 0 ? Math.round((moodSwingList.length / totalEntries) * 100) : 0,
@@ -957,10 +1048,17 @@ export function computeAnalytics(
 
   if (highEnergyList.length >= 3 && otherEnergyEpisodes.length >= 3) {
     const sharePerItem = (list: PulseEntry[]) => {
-      const counts = new Map<string, number>();
+      const counts = new Map<string, { label: string; count: number }>();
       for (const entry of list) {
-        for (const label of new Set(entry.behaviors.map((b) => b.itemLabel))) {
-          counts.set(label, (counts.get(label) ?? 0) + 1);
+        for (const behavior of entry.behaviors) {
+          const item = resolveBehaviorItem(behavior, itemLookup);
+          // Sem identidade resolvível, o rótulo normalizado ainda evita colisão de caixa.
+          const key = item ? `id:${item.itemId}` : `label:${behavior.itemLabel.trim().toLowerCase()}`;
+          const existing = counts.get(key);
+          counts.set(key, {
+            label: item?.label ?? behavior.itemLabel,
+            count: (existing?.count ?? 0) + 1,
+          });
         }
       }
       return counts;
@@ -970,17 +1068,19 @@ export function computeAnalytics(
     const otherCounts = sharePerItem(otherEnergyEpisodes);
     let best: EnergyShift | null = null;
 
-    for (const [label, highCount] of highCounts.entries()) {
-      const highShare = Math.round((highCount / highEnergyList.length) * 100);
-      const otherShare = Math.round(((otherCounts.get(label) ?? 0) / otherEnergyEpisodes.length) * 100);
+    for (const [itemKey, high] of highCounts.entries()) {
+      const highShare = Math.round((high.count / highEnergyList.length) * 100);
+      const otherShare = Math.round(
+        ((otherCounts.get(itemKey)?.count ?? 0) / otherEnergyEpisodes.length) * 100
+      );
       const deltaPoints = highShare - otherShare;
       if (deltaPoints >= 20 && (!best || deltaPoints > best.deltaPoints)) {
         best = {
-          label,
+          label: high.label,
           highShare,
           otherShare,
           deltaPoints,
-          highCount,
+          highCount: high.count,
           highTotal: highEnergyList.length,
         };
       }
@@ -992,21 +1092,25 @@ export function computeAnalytics(
   const insights: InsightItem[] = [];
 
   if (totalEntries > 0) {
-    if (reducedSleepNeedCount > 0 || poorSleepCount > 0) {
+    // Base mínima: uma média de sono com 1–2 noites não sustenta leitura nenhuma.
+    if (sleepValues.length >= 3) {
       insights.push({
         id: 'ins_sleep',
         title: 'Sono e redução da necessidade de sono',
         category: 'bipolaridade',
-        summary: `Média de ${metric(avgSleepHours, 'h')} de sono por noite. Redução da necessidade de sono apareceu em ${reducedSleepNeedRate}% dos registros que responderam (${reducedSleepNeedCount} de ${reducedSleepNeedBase}).`,
+        summary: `Média de ${metric(avgSleepHours, 'h')} de sono por noite entre as ${sleepValues.length} noites informadas. Redução da necessidade de sono apareceu em ${proportion(reducedSleepNeedCount, reducedSleepNeedBase, 'registros que responderam sobre isso')}.`,
         detail:
           reducedSleepNeedCount > 0
             ? 'Dormir poucas horas e ainda assim acordar com energia alta ou sem cansaço é um marcador clínico relevante para diferenciar ativação de humor de uma privação comum de sono.'
-            : `Foram registrados ${poorSleepCount} dia(s) com sono ruim ou inferior a 6h, fator que reduz o limiar para impulsividade.`,
-        metricLabel: `Média ${metric(avgSleepHours, 'h')}/noite`,
+            : poorSleepCount > 0
+            ? `Foram registrados ${poorSleepCount} dia(s) com sono ruim ou inferior a 6h, fator que reduz o limiar para impulsividade. A redução da necessidade de sono não foi marcada.`
+            : 'Nenhuma noite informada ficou abaixo de 6h ou foi marcada como ruim, e a redução da necessidade de sono não apareceu neste recorte.',
+        metricLabel: `Sono informado: ${sleepValues.length} de ${totalEntries} registros`,
+        basis: `Base: ${sleepValues.length} de ${totalEntries} registro(s) com horas de sono informadas; ${reducedSleepNeedBase} responderam sobre redução da necessidade de sono.`,
       });
     }
 
-    if (cycleAnalysis.findings.length > 0) {
+    if (cycleAnalysis.findings.length > 0 && cycleAnalysis.analyzedEpisodes >= 2) {
       insights.push({
         id: 'ins_cycle',
         title: 'Padrão longitudinal (antes, durante e depois)',
@@ -1014,6 +1118,7 @@ export function computeAnalytics(
         summary: cycleAnalysis.findings[0],
         detail: cycleAnalysis.findings.slice(1).join(' ') || 'Comparação baseada nos dias adjacentes registrados antes e depois dos blocos de episódios.',
         metricLabel: `${cycleAnalysis.analyzedEpisodes} episódio(s) em ciclo`,
+        basis: `Base: ${cycleAnalysis.analyzedEpisodes} episódio(s) em ${cycleAnalysis.during.sampleDays} dia(s), comparados a ${cycleAnalysis.before.sampleDays} dia(s) antes e ${cycleAnalysis.after.sampleDays} depois.`,
       });
     }
 
@@ -1025,7 +1130,8 @@ export function computeAnalytics(
         e.stateDuration === StateDuration.DIAS_14_MAIS
     ).length;
     const topSignal = activationSignalStats.find((s) => s.count > 0);
-    if (multiDayCount > 0 || topSignal) {
+    const sustainedSignalBase = multiDayCount >= 2 || (topSignal?.count ?? 0) >= 3;
+    if (sustainedSignalBase) {
       insights.push({
         id: 'ins_activation_duration',
         title: 'Duração dos estados e sinais de ativação',
@@ -1036,10 +1142,14 @@ export function computeAnalytics(
         detail:
           'Separar se a aceleração mental ou irritabilidade dura algumas horas (mais comum em picos de TDAH/estresse) ou vários dias seguidos ajuda o psiquiatra na investigação diagnóstica.',
         metricLabel: `${multiDayCount} estados multi-dias`,
+        basis: `Base: ${totalEntries} registro(s) no período; ${multiDayCount} descreveram duração de dias ou semanas${
+          topSignal ? ` e ${topSignal.count} marcaram "${topSignal.label}"` : ''
+        }.`,
       });
     }
 
-    if (bipolarIndicators.highEnergyEpisodes > 0) {
+    // Comparações entre grupos só entram com pelo menos 2 episódios de cada lado.
+    if (bipolarIndicators.highEnergyEpisodes > 0 && totalEpisodes >= 2) {
       const topList =
         bipolarIndicators.highEnergyTopBehaviors.length > 0
           ? `Mais frequentes: ${bipolarIndicators.highEnergyTopBehaviors.join(', ')}.`
@@ -1048,16 +1158,21 @@ export function computeAnalytics(
         id: 'ins_high_energy',
         title: 'Impulsividade em estados de alta energia ou euforia',
         category: 'bipolaridade',
-        summary: `${bipolarIndicators.highEnergyPercent}% dos episódios ocorreram com energia ≥ 8/10 combinada à redução da necessidade de sono.`,
+        summary: `${proportion(
+          bipolarIndicators.highEnergyEpisodes,
+          totalEpisodes,
+          'episódios'
+        )} ocorreram com energia ≥ 8/10 combinada à redução da necessidade de sono.`,
         detail: `Nestes momentos, a intensidade média da vontade foi de ${metric(
           bipolarIndicators.highEnergyAvgUrge,
           '/10'
         )}. Energia alta isolada (hiperfoco, ansiedade, cafeína) não entra neste indicador. ${topList}`,
         metricLabel: `${bipolarIndicators.highEnergyEpisodes} de ${totalEpisodes} episódios`,
+        basis: baseOf(bipolarIndicators.highEnergyEpisodes, totalEpisodes, 'episódio(s) do período'),
       });
     }
 
-    if (bipolarIndicators.lowEnergyReliefEpisodes > 0) {
+    if (bipolarIndicators.lowEnergyReliefEpisodes > 0 && totalEpisodes >= 2) {
       const topLow =
         bipolarIndicators.lowEnergyTopBehaviors.length > 0
           ? `Comportamentos mais presentes: ${bipolarIndicators.lowEnergyTopBehaviors.join(', ')}.`
@@ -1066,13 +1181,26 @@ export function computeAnalytics(
         id: 'ins_low_energy',
         title: 'Comportamentos de alívio em tristeza, vazio ou exaustão',
         category: 'bipolaridade',
-        summary: `${bipolarIndicators.lowEnergyPercent}% dos episódios surgiram em energia baixa (≤ 3/10) ou estados de Tristeza/Vazio e Apatia.`,
-        detail: `Em ${bipolarIndicators.lowEnergyAutomaticRate}% desses momentos, o comportamento foi automático ou misto. ${topLow}`,
+        summary: `${proportion(
+          bipolarIndicators.lowEnergyReliefEpisodes,
+          totalEpisodes,
+          'episódios'
+        )} surgiram em energia baixa (≤ 3/10) ou estados de Tristeza/Vazio e Apatia.`,
+        detail: `O comportamento foi automático ou misto em ${proportion(
+          lowEnergyAutoCount,
+          bipolarIndicators.lowEnergyReliefEpisodes,
+          'desses episódios'
+        )}. ${topLow}`,
         metricLabel: `${bipolarIndicators.lowEnergyAutomaticRate}% automático/misto`,
+        basis: baseOf(
+          bipolarIndicators.lowEnergyReliefEpisodes,
+          totalEpisodes,
+          'episódio(s) do período'
+        ),
       });
     }
 
-    if (bipolarIndicators.expectationDropPatternCount > 0) {
+    if (bipolarIndicators.expectationDropPatternCount >= 2) {
       insights.push({
         id: 'ins_expectation_drop',
         title: 'Ciclo “euforia na expectativa → descarga → queda de interesse”',
@@ -1081,17 +1209,24 @@ export function computeAnalytics(
         detail:
           'Descreve um pico rápido de excitação na expectativa seguido de queda abrupta de energia, desinteresse ou vazio logo depois.',
         metricLabel: `${bipolarIndicators.expectationDropPatternCount} ocorrência(s)`,
+        basis: `Base: ${bipolarIndicators.expectationDropPatternCount} de ${totalEpisodes} episódio(s) com relato de expectativa/euforia seguido de queda.`,
       });
     }
 
-    if (functionalImpactSummary.anySignificantImpactRate > 0) {
+    const impactAnswered = totalEntries - functionalImpactSummary.unansweredCount;
+    if (anySignificantImpactCount > 0 && impactAnswered >= 3) {
       insights.push({
         id: 'ins_functional',
         title: 'Impacto funcional no dia a dia',
         category: 'gatilho',
-        summary: `Em ${functionalImpactSummary.anySignificantImpactRate}% dos registros houve impacto moderado ou intenso em trabalho, relacionamentos ou rotina.`,
-        detail: `Ocorrências moderadas/intensas: Trabalho (${functionalImpactSummary.workModerateOrHigh}x), Relacionamentos (${functionalImpactSummary.relationshipsModerateOrHigh}x), Rotina (${functionalImpactSummary.routineModerateOrHigh}x).`,
-        metricLabel: `${functionalImpactSummary.anySignificantImpactRate}% com impacto`,
+        summary: `${proportion(
+          anySignificantImpactCount,
+          impactAnswered,
+          'registros que avaliaram o impacto'
+        )} indicaram impacto moderado ou intenso em trabalho, relacionamentos ou rotina.`,
+        detail: `Ocorrências moderadas/intensas: Trabalho (${functionalImpactSummary.workModerateOrHigh}x), Relacionamentos (${functionalImpactSummary.relationshipsModerateOrHigh}x), Rotina (${functionalImpactSummary.routineModerateOrHigh}x). ${functionalImpactSummary.unansweredCount} registro(s) não avaliaram impacto e ficam fora da base.`,
+        metricLabel: `${anySignificantImpactCount} de ${impactAnswered} com impacto`,
+        basis: baseOf(anySignificantImpactCount, impactAnswered, 'registro(s) que avaliaram impacto'),
       });
     }
 
@@ -1105,9 +1240,14 @@ export function computeAnalytics(
         id: `ins_cat_mood_${cross.categoryId}`,
         title: `Humor predominante — ${cross.categoryName}`,
         category: 'compulsao',
-        summary: `${cross.topMoodShare}% dos episódios de ${cross.categoryName.toLowerCase()} ocorreram em estados de ${cross.topMoodLabel.toLowerCase()}.`,
-        detail: `Base: ${cross.episodeCount} episódio(s) com esse comportamento no período — ${cross.topMoodCount} deles registraram ${cross.topMoodLabel}. Os demais se distribuíram entre outros estados emocionais.`,
+        summary: `${proportion(
+          cross.topMoodCount,
+          cross.episodeCount,
+          `episódios de ${cross.categoryName.toLowerCase()}`
+        )} ocorreram em estados de ${cross.topMoodLabel.toLowerCase()}.`,
+        detail: `${cross.topMoodCount} de ${cross.episodeCount} episódio(s) com esse comportamento registraram ${cross.topMoodLabel}. Os demais se distribuíram entre outros estados emocionais.`,
         metricLabel: `${cross.topMoodCount} de ${cross.episodeCount} episódios`,
+        basis: baseOf(cross.topMoodCount, cross.episodeCount, `episódio(s) de ${cross.categoryName.toLowerCase()} no período`),
       });
     }
 
@@ -1119,37 +1259,70 @@ export function computeAnalytics(
         id: `ins_cat_awareness_${cross.categoryId}`,
         title: `Ação automática — ${cross.categoryName}`,
         category: 'compulsao',
-        summary: `${cross.automaticShare}% dos episódios de ${cross.categoryName.toLowerCase()} foram automáticos, sem percepção no momento.`,
+        summary: `${proportion(
+          cross.automaticCount,
+          cross.episodeCount,
+          `episódios de ${cross.categoryName.toLowerCase()}`
+        )} foram automáticos, sem percepção no momento.`,
         detail: `Automático: ${cross.automaticCount} · Mistura: ${cross.mixedCount} · Consciente: ${cross.consciousCount} de ${cross.episodeCount} episódio(s). Comportamento automático é o alvo mais direto de treino de pausa e atenção plena.`,
         metricLabel: `${cross.automaticCount} de ${cross.episodeCount} automáticos`,
+        basis: baseOf(cross.automaticCount, cross.episodeCount, `episódio(s) de ${cross.categoryName.toLowerCase()} no período`),
       });
     }
 
     // Concentração de um comportamento específico em estados de alta energia
     if (energyShift) {
+      const bothBasesEnough =
+        energyShift.highTotal >= MIN_PERCENT_BASE && otherEnergyEpisodes.length >= MIN_PERCENT_BASE;
       insights.push({
         id: 'ins_energy_shift',
         title: 'Comportamentos concentrados em alta energia',
         category: 'bipolaridade',
-        summary: `"${energyShift.label}" aparece em ${energyShift.highShare}% dos episódios de alta energia (energia ≥ 8/10 + redução da necessidade de sono) contra ${energyShift.otherShare}% nos demais — ${energyShift.deltaPoints} pontos percentuais a mais.`,
-        detail: `Comparação entre ${energyShift.highTotal} episódio(s) de alta energia e os demais episódios do período. A diferença em pontos percentuais evita distorção de amostras pequenas ao falar em "aumento de X%".`,
-        metricLabel: `+${energyShift.deltaPoints} p.p. em alta energia`,
+        summary: `"${energyShift.label}" aparece em ${proportion(
+          energyShift.highCount,
+          energyShift.highTotal,
+          'episódios de alta energia (energia ≥ 8/10 + redução da necessidade de sono)'
+        )} contra ${proportion(
+          Math.round((energyShift.otherShare / 100) * otherEnergyEpisodes.length),
+          otherEnergyEpisodes.length,
+          'demais episódios'
+        )}${
+          bothBasesEnough ? ` — ${energyShift.deltaPoints} pontos percentuais a mais` : ''
+        }.`,
+        detail: `Comparação entre ${energyShift.highTotal} episódio(s) de alta energia e ${otherEnergyEpisodes.length} demais episódios do período.${
+          bothBasesEnough
+            ? ' A diferença em pontos percentuais evita distorção ao falar em "aumento de X%".'
+            : ' Com menos de 5 episódios em um dos lados, a leitura fica em contagem — diferença percentual seria instável.'
+        }`,
+        metricLabel:
+          energyShift.highTotal >= MIN_PERCENT_BASE
+            ? `+${energyShift.deltaPoints} p.p. em alta energia`
+            : `${energyShift.highCount} de ${energyShift.highTotal} em alta energia`,
+        basis: `Base: ${energyShift.highTotal} episódio(s) de alta energia e ${otherEnergyEpisodes.length} demais episódios.`,
       });
     }
 
-    // Segurança: sofrimento grave não pode ficar só no texto livre.
+    // Segurança: sofrimento grave não pode ficar só no texto livre — e os recursos de apoio
+    // precisam estar sempre acessíveis, mesmo quando nada grave foi registrado.
     const safetyTotal = safetySummary.pensamentosMorte + safetySummary.autolesao;
-    if (safetyTotal > 0) {
-      insights.push({
-        id: 'ins_safety',
-        title: 'Sofrimento grave registrado',
-        category: 'seguranca',
-        summary: `${safetyTotal} registro(s) indicaram pensamentos de morte ou impulso de autolesão.`,
-        detail:
-          'Vale levar isso explicitamente para a próxima consulta. Em caso de risco imediato: CVV 188 (24h), SAMU 192 ou o pronto-socorro mais próximo. O PulseTrack não é serviço de emergência.',
-        metricLabel: `${safetyTotal} registro(s)`,
-      });
-    }
+    insights.push({
+      id: 'ins_safety',
+      title: safetyTotal > 0 ? 'Sofrimento grave registrado' : 'Segurança e recursos de apoio',
+      category: 'seguranca',
+      summary:
+        safetyTotal > 0
+          ? `${safetyTotal} registro(s) indicaram pensamentos de morte ou impulso de autolesão.`
+          : 'Nenhum registro do período indicou pensamentos de morte ou impulso de autolesão. Isso não mede risco agora — é só o que foi registrado.',
+      detail:
+        safetyTotal > 0
+          ? 'Vale levar isso explicitamente para a próxima consulta. Em caso de risco imediato: CVV 188 (24h), SAMU 192 ou o pronto-socorro mais próximo. O PulseTrack não é serviço de emergência.'
+          : 'Em qualquer momento de risco: CVV 188 (ligação gratuita, 24h), SAMU 192 ou o pronto-socorro mais próximo. O PulseTrack não é serviço de emergência.',
+      metricLabel:
+        safetyTotal > 0
+          ? `${safetyTotal} registro(s)`
+          : `0 de ${totalEntries} registro(s)`,
+      basis: baseOf(safetyTotal, totalEntries, 'registro(s) do período'),
+    });
 
     // Impulso x ação: base honesta para a frequência de compulsões.
     if (behaviorModes.impulsos > 0) {
@@ -1160,6 +1333,7 @@ export function computeAnalytics(
         summary: `${behaviorModes.feitos} comportamento(s) aconteceram e ${behaviorModes.impulsos} ficaram só no impulso.`,
         detail: `Em ${behaviorModes.registrosComImpulsoSemAcao} registro(s) nada foi levado adiante. Prejuízo ou sofrimento foi marcado em ${behaviorModes.comPrejuizo} ocorrência(s). Contar apenas as ações evita inflar a frequência de compulsões com vontades que foram contidas.`,
         metricLabel: `${behaviorModes.impulsos} impulso(s) contido(s)`,
+        basis: `Base: ${behaviorModes.feitos + behaviorModes.impulsos} item(ns) registrado(s) no período, em ${entries.filter((e) => e.behaviors.length > 0).length} registro(s) com comportamento.`,
       });
     }
 
@@ -1186,6 +1360,7 @@ export function computeAnalytics(
         detail:
           'Esses sinais não são sintomas de mania e costumam ser lidos como "aceleração" por engano. Registrar separadamente ajuda o profissional a diferenciar ativação de humor de sobrecarga, camuflagem e paralisia de tarefa.',
         metricLabel: `${neurodivergentEntries} registro(s)`,
+        basis: baseOf(neurodivergentEntries, totalEntries, 'registro(s) do período'),
       });
     }
 
@@ -1199,10 +1374,69 @@ export function computeAnalytics(
         evolution.status === 'insuficiente'
           ? `${currCount} episódio(s) no período`
           : `${prevCount} → ${currCount} episódios`,
+      basis: `Base: ${totalEntries} registro(s) — ${totalEpisodes} episódio(s) e ${totalCheckinsOnly} check-in(s) — em ${daysLogged} dia(s) acompanhados de ${periodDays}.`,
     });
   }
 
+  /**
+   * Cobertura: para cada eixo, quantos registros responderam e a quantos ele se aplica.
+   * É o que permite ao relatório dizer "informado em 8 de 12" em vez de sugerir que
+   * uma média fraca representa o período inteiro.
+   */
+  const hasAnyImpact = (entry: PulseEntry) =>
+    entry.functionalImpact.work !== null ||
+    entry.functionalImpact.relationships !== null ||
+    entry.functionalImpact.routine !== null;
+
+  const coverage: Record<MetricKey, MetricCoverage> = {
+    mood: { answered: entries.filter((e) => e.moods.length > 0).length, base: totalEntries },
+    valence: { answered: entries.filter((e) => e.valence !== null).length, base: totalEntries },
+    energy: { answered: energyValues.length, base: totalEntries },
+    sleepHours: { answered: sleepReportedCount, base: totalEntries },
+    sleepQuality: {
+      answered: entries.filter((e) => e.sleep.quality !== null).length,
+      base: totalEntries,
+    },
+    stateDuration: {
+      answered: entries.filter((e) => e.stateDuration !== null).length,
+      base: totalEntries,
+    },
+    activationSignals: {
+      answered: entries.filter((e) => e.activationSignals.length > 0).length,
+      base: totalEntries,
+    },
+    behavior: {
+      answered: episodes.filter(
+        (e) => e.behaviors.length > 0 || e.behaviorOtherText.trim().length > 0
+      ).length,
+      base: totalEpisodes,
+    },
+    urge: { answered: urgeValues.length, base: totalEpisodes },
+    awareness: {
+      answered: episodes.filter((e) => e.awareness !== null).length,
+      base: totalEpisodes,
+    },
+    functionalImpact: {
+      answered: entries.filter(hasAnyImpact).length,
+      base: totalEntries,
+    },
+    medication: {
+      answered: entries.filter((e) => e.medication.status !== null).length,
+      base: totalEntries,
+    },
+    safety: {
+      answered: entries.filter((e) => e.safetyConcern !== null).length,
+      base: totalEntries,
+    },
+    notes: {
+      answered: entries.filter((e) => e.notes.trim().length > 0).length,
+      base: totalEntries,
+    },
+    cycle: { answered: entries.filter((e) => e.cyclePhase !== null).length, base: totalEntries },
+  };
+
   return {
+    coverage,
     totalEntries,
     totalEpisodes,
     totalCheckinsOnly,

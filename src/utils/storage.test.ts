@@ -37,6 +37,8 @@ describe('normalizeEntry', () => {
       noFatigueAfterShortSleep: null,
     });
     expect(entry.stateDuration).toBeNull();
+    // Profundidade não é inferida de registros antigos.
+    expect(entry.depth).toBeNull();
     expect(entry.awareness).toBeNull();
     expect(entry.resisted).toBeNull();
     expect(entry.urgeIntensity).toBeNull();
@@ -116,7 +118,13 @@ describe('persistência em localStorage', () => {
       focusModeDefault: false,
       showSexualCategory: false,
       trackCycle: false,
+      defaultRecordLevel: 'rapido',
       reportLabel: '',
+      focusAreas: ['emocional'],
+      profileHint: null,
+      packageIds: [],
+      reminderOptIn: false,
+      reminderTime: '20:00',
     });
 
     const prefs = loadPreferences();
@@ -143,7 +151,8 @@ describe('backup', () => {
     );
 
     expect(payload.app).toBe('PulseTrack');
-    expect(payload.version).toBe(2);
+    expect(payload.version).toBe(3);
+    expect(payload.experiments).toEqual([]);
     expect(payload.entries).toHaveLength(1);
     expect(payload.entries[0].id).toBe('backup-1');
   });
@@ -162,5 +171,59 @@ describe('backup', () => {
 
   it('recusa backup sem as listas obrigatórias', () => {
     expect(parseBackupJson(JSON.stringify({ app: 'PulseTrack', entries: [] }))).toBeNull();
+  });
+});
+
+describe('backup v2 (schema de categorias anterior)', () => {
+  it('importa categorias no formato antigo, experimentos vazios e não perde registros', () => {
+    const legacy = JSON.stringify({
+      app: 'PulseTrack',
+      version: 2,
+      exportedAt: '2026-11-01T10:00:00.000Z',
+      entries: [{ id: 'legado', date: '2026-11-01', behaviors: [] }],
+      categories: [
+        {
+          id: 'cat_financeira',
+          name: 'Financeira',
+          color: '#B8893A',
+          active: true,
+          items: [{ id: 'fin_compras', label: 'Compras impulsivas', active: true }],
+        },
+      ],
+      preferences: {},
+    });
+
+    const restored = parseBackupJson(legacy);
+
+    expect(restored).not.toBeNull();
+    expect(restored?.experiments).toEqual([]);
+    expect(restored?.entries).toHaveLength(1);
+    expect(restored?.categories[0].version).toBe(2);
+    expect(restored?.categories[0].items[0].createdAt).toBeNull();
+    expect(restored?.categories[0].items[0].label).toBe('Compras impulsivas');
+  });
+
+  it('exporta experimentos no payload v3 e os restaura', () => {
+    const experiment = {
+      id: 'exp_1',
+      hypothesis: 'Sono curto aumenta a vontade',
+      metric: 'urge' as const,
+      startDate: '2026-11-01',
+      endDate: '2026-11-14',
+      status: 'active' as const,
+      createdAt: '2026-11-01T10:00:00.000Z',
+      updatedAt: '2026-11-01T10:00:00.000Z',
+      result: null,
+      resultNote: '',
+      closedAt: null,
+    };
+
+    const backupEntry = normalizeEntry({ id: 'backup-v3', date: '2026-11-01' });
+    const restored = parseBackupJson(
+      buildBackupJson([backupEntry], loadCategories(), loadPreferences(), [experiment])
+    );
+
+    expect(restored?.experiments).toHaveLength(1);
+    expect(restored?.experiments[0].hypothesis).toBe('Sono curto aumenta a vontade');
   });
 });

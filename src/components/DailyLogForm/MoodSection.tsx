@@ -1,5 +1,5 @@
-import React from 'react';
-import { Check } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { AlertCircle, Check } from 'lucide-react';
 import {
   MOOD_DEFINITIONS,
   MOOD_SWING_DIRECTION_OPTIONS,
@@ -18,6 +18,11 @@ interface MoodSectionProps {
   moodSwingDescription: string;
   theme: ThemeMode;
   compact: boolean;
+  /** Usado quando o formulário já mostra o título do pilar (seção recolhível). */
+  embedded?: boolean;
+  /** Mensagem de validação exibida junto aos humores (não no rodapé). */
+  error: string | null;
+  reduceMotion: boolean;
   onToggleMood: (id: MoodStateId) => void;
   onChangeMoodIntensity: (id: MoodStateId, value: number) => void;
   onChangeMoodOtherText: (value: string) => void;
@@ -53,6 +58,9 @@ export const MoodSection: React.FC<MoodSectionProps> = React.memo(
     moodSwingDescription,
     theme,
     compact,
+    embedded = false,
+    error,
+    reduceMotion,
     onToggleMood,
     onChangeMoodIntensity,
     onChangeMoodOtherText,
@@ -63,9 +71,22 @@ export const MoodSection: React.FC<MoodSectionProps> = React.memo(
     onChangeMoodSwingDescription,
   }) => {
     const selectedMoods = MOOD_DEFINITIONS.filter((mood) => moods.includes(mood.id));
+    const sectionRef = useRef<HTMLElement | null>(null);
+    const firstMoodRef = useRef<HTMLButtonElement | null>(null);
+
+    // O erro nasce no rodapé do formulário; aqui ele aparece onde a decisão acontece.
+    useEffect(() => {
+      if (!error) return;
+      firstMoodRef.current?.focus({ preventScroll: true });
+      sectionRef.current?.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'center',
+      });
+    }, [error, reduceMotion]);
 
     return (
       <section
+        ref={sectionRef}
         aria-labelledby="sec-emotional"
         className="rounded-2xl border p-5 sm:p-7 space-y-6"
         style={{
@@ -75,9 +96,11 @@ export const MoodSection: React.FC<MoodSectionProps> = React.memo(
         }}
       >
         <div>
-          <p className="text-xs font-medium" style={{ color: 'var(--color-primary-strong)' }}>
-            Pilar 1 · Estado emocional
-          </p>
+          {!embedded && (
+            <p className="text-xs font-medium" style={{ color: 'var(--color-primary-strong)' }}>
+              Pilar 1 · Estado emocional
+            </p>
+          )}
           <h2
             id="sec-emotional"
             className="text-xl font-semibold mt-0.5"
@@ -91,8 +114,23 @@ export const MoodSection: React.FC<MoodSectionProps> = React.memo(
           </p>
         </div>
 
+        {error && (
+          <div
+            role="alert"
+            className="rounded-xl border p-3.5 text-sm font-medium flex items-start gap-2"
+            style={{
+              backgroundColor: 'var(--color-accent-soft)',
+              borderColor: 'var(--color-accent)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {MOOD_DEFINITIONS.map((mood) => {
+          {MOOD_DEFINITIONS.map((mood, index) => {
             const selected = moods.includes(mood.id);
             const dotColor =
               theme === ThemeMode.DARK
@@ -104,6 +142,7 @@ export const MoodSection: React.FC<MoodSectionProps> = React.memo(
             return (
               <button
                 key={mood.id}
+                ref={index === 0 ? firstMoodRef : undefined}
                 type="button"
                 onClick={() => onToggleMood(mood.id)}
                 aria-pressed={selected}

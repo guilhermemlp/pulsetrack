@@ -1,5 +1,13 @@
-import React from 'react';
-import { AnalyticsSummary, AppTab, PeriodFilter } from '../types/pulsetrack';
+import React, { useState } from 'react';
+import {
+  AnalyticsSummary,
+  AppTab,
+  Experiment,
+  ExperimentMetric,
+  InsightItem,
+  PeriodFilter,
+} from '../types/pulsetrack';
+import { ExperimentComposer } from './ExperimentComposer';
 
 interface InsightsViewProps {
   analytics: AnalyticsSummary;
@@ -7,6 +15,7 @@ interface InsightsViewProps {
   period: PeriodFilter;
   onChangePeriod: (p: PeriodFilter) => void;
   onNavigate: (tab: AppTab) => void;
+  onCreateExperiment: (experiment: Experiment) => void;
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -25,7 +34,26 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
   period,
   onChangePeriod,
   onNavigate,
+  onCreateExperiment,
 }) => {
+  const [composerInsight, setComposerInsight] = useState<InsightItem | null>(null);
+
+  /** Indicador inicial sugerido pela categoria do insight — sempre editável. */
+  const metricForInsight = (insight: InsightItem): ExperimentMetric => {
+    switch (insight.category) {
+      case 'compulsao':
+        return 'urge';
+      case 'bipolaridade':
+      case 'neurodivergencia':
+        return 'energy';
+      case 'ciclo':
+        return 'valence';
+      case 'evolucao':
+        return 'episodes';
+      default:
+        return 'episodes';
+    }
+  };
   if (totalAllEntries === 0) {
     return (
       <section
@@ -142,7 +170,28 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
                   <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                     {insight.detail}
                   </p>
+                  <p
+                    className="text-xs leading-relaxed pt-1 border-t"
+                    style={{
+                      color: 'var(--text-muted)',
+                      borderColor: 'var(--border-hairline)',
+                    }}
+                  >
+                    {insight.basis}
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setComposerInsight(insight)}
+                  className="self-start min-h-[48px] px-4 rounded-xl border text-sm font-medium cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-strong)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Investigar isso
+                </button>
               </article>
             ))}
           </div>
@@ -207,6 +256,19 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
             </section>
           </div>
         </>
+      )}
+
+      {composerInsight && (
+        <ExperimentComposer
+          initialHypothesis={composerInsight.summary}
+          initialMetric={metricForInsight(composerInsight)}
+          sourceInsightId={composerInsight.id}
+          onCancel={() => setComposerInsight(null)}
+          onCreate={(experiment) => {
+            onCreateExperiment(experiment);
+            setComposerInsight(null);
+          }}
+        />
       )}
     </div>
   );

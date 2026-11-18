@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { EntryType } from '../../types/pulsetrack';
+import { EntryType, RecordLevel } from '../../types/pulsetrack';
 
 interface FormHeaderActionsProps {
   isEditing: boolean;
@@ -59,11 +59,22 @@ FormHeaderActions.displayName = 'FormHeaderActions';
 interface FormActionsProps {
   isEditing: boolean;
   entryType: EntryType;
+  level: RecordLevel;
   focusMode: boolean;
   showOptionalInFocus: boolean;
   validationMessage: string;
   onToggleOptionalInFocus: () => void;
   onResetForm: () => void;
+  /** Salva agora e reabre o registro para completar os eixos depois. */
+  onCompleteLater: () => void;
+}
+
+function saveLabel(isEditing: boolean, entryType: EntryType, level: RecordLevel): string {
+  if (isEditing) return 'Salvar alterações';
+  if (entryType === EntryType.EPISODE) return 'Salvar episódio';
+  if (level === 'completo') return 'Salvar check-in completo';
+  if (level === 'padrao') return 'Salvar check-in detalhado';
+  return 'Salvar check-in rápido';
 }
 
 /**
@@ -73,11 +84,13 @@ export const FormActions: React.FC<FormActionsProps> = React.memo(
   ({
     isEditing,
     entryType,
+    level,
     focusMode,
     showOptionalInFocus,
     validationMessage,
     onToggleOptionalInFocus,
     onResetForm,
+    onCompleteLater,
   }) => {
     const alertRef = useRef<HTMLDivElement | null>(null);
 
@@ -136,6 +149,20 @@ export const FormActions: React.FC<FormActionsProps> = React.memo(
           >
             Limpar formulário
           </button>
+          {!isEditing && (
+            <button
+              type="button"
+              onClick={onCompleteLater}
+              className="min-h-[48px] px-4 py-3 rounded-xl border text-sm font-medium cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-hairline)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              Salvar e completar depois
+            </button>
+          )}
           <button
             type="submit"
             className="min-h-[52px] px-8 py-3 rounded-xl text-base font-semibold transition-opacity hover:opacity-95 cursor-pointer"
@@ -144,11 +171,7 @@ export const FormActions: React.FC<FormActionsProps> = React.memo(
               color: 'var(--color-primary-ink)',
             }}
           >
-            {isEditing
-              ? 'Salvar alterações'
-              : entryType === EntryType.DAILY_CHECKIN
-              ? 'Salvar check-in diário'
-              : 'Salvar episódio'}
+            {saveLabel(isEditing, entryType, level)}
           </button>
         </div>
       </>

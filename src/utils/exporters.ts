@@ -15,11 +15,19 @@ import {
   AnalyticsSummary,
   AwarenessType,
   BehaviorMode,
+  Experiment,
   PeriodFilter,
   PulseEntry,
   ResistanceResult,
 } from '../types/pulsetrack';
-import { formatLongDate, isEpisodeEntry, toLocalIsoDate } from './analytics';
+import {
+  formatLongDate,
+  isEpisodeEntry,
+  summarizeCoverage,
+  toLocalIsoDate,
+} from './analytics';
+import { analyzeExperiment, describeExperiment } from './experiments';
+import { buildExecutiveReport } from './executive';
 
 /** Marcador único de campo não respondido — nunca substituído por zero ou por um padrão. */
 const NOT_INFORMED = 'não informado';
@@ -161,7 +169,11 @@ function escapeCsvCell(value: string | number | boolean): string {
 /**
  * Exporta todos os registros (check-ins diários e episódios) em CSV UTF-8 com BOM.
  */
-export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter): void {
+export function exportEntriesToCsv(
+  entries: PulseEntry[],
+  period: PeriodFilter,
+  analytics: AnalyticsSummary
+): void {
   const headers = [
     'Tipo de Registro',
     'Data',
@@ -247,7 +259,20 @@ export function exportEntriesToCsv(entries: PulseEntry[], period: PeriodFilter):
       .join(';');
   });
 
-  const csvContent = '\uFEFF' + [headers.map(escapeCsvCell).join(';'), ...rows].join('\r\n');
+  // Bloco de cobertura antes da tabela: o CSV também precisa dizer sobre quantos
+  // registros cada seção foi realmente informada.
+  const coverageBlock = [
+    ['Cobertura do período (informado em X de Y)'].map(escapeCsvCell).join(';'),
+    ['Seção', 'Informado', 'Base'].map(escapeCsvCell).join(';'),
+    ...summarizeCoverage(analytics.coverage).map((section) =>
+      [section.label, section.answered, section.base].map(escapeCsvCell).join(';')
+    ),
+    '',
+  ];
+
+  const csvContent =
+    '\uFEFF' +
+    [...coverageBlock, headers.map(escapeCsvCell).join(';'), ...rows].join('\r\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -269,7 +294,8 @@ export async function exportClinicalReportPdf(
   entries: PulseEntry[],
   analytics: AnalyticsSummary,
   period: PeriodFilter,
-  reportLabel: string
+  reportLabel: string,
+  experiments: Experiment[] = []
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -374,6 +400,10 @@ export async function exportClinicalReportPdf(
     'Campos não respondidos aparecem como "não informado". Nenhuma média do relatório usa valor presumido.',
     8.5
   );
+  addParagraph('Cobertura do período (informado em X de Y):', 9, true);
+  for (const section of summarizeCoverage(analytics.coverage)) {
+    addParagraph(`- ${section.label}: informado em ${section.answered} de ${section.base}.`, 8.5);
+  }
 
   // 2. Estado de Ativação, Sono e Duração
   addSectionTitle('2. Estado de Ativação, Sono e Duração das Alterações');
@@ -616,6 +646,23 @@ export async function exportClinicalReportPdf(
     y += 1.5;
   }
 
+  // 8. Experimentos observados (hipóteses do usuário, sem veredito automático)
+  addSectionTitle('8. Experimentos Observados');
+  if (experiments.length === 0) {
+    addParagraph('Nenhuma observação registrada até o momento.');
+  } else {
+    addParagraph(
+      'Hipóteses acompanhadas pelo próprio usuário. A janela é comparada com o mesmo número de dias imediatamente anterior; a conclusão registrada é sempre uma escolha da pessoa, não um cálculo do aplicativo.',
+      8.5
+    );
+    for (const experiment of experiments) {
+      for (const line of describeExperiment(experiment, analyzeExperiment(experiment, entries))) {
+        addParagraph(line, 8.5);
+      }
+      y += 1.5;
+    }
+  }
+
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -633,4 +680,147 @@ export async function exportClinicalReportPdf(
 
   const dateStamp = toLocalIsoDate();
   doc.save(`PulseTrack_Relatorio_Longitudinal_${dateStamp}.pdf`);
+}
+
+/**
+ * Relatório executivo de 1 página: o que mais se repete, três insights, evolução,
+ * cobertura honesta e experimentos observados. Os dados brutos continuam nos
+ * exports completos (PDF clínico e CSV), nunca substituídos por este resumo.
+ */
+export async function exportExecutiveReportPdf(
+  analytics: AnalyticsSummary,
+  entries: PulseEntry[],
+  experiments: Experiment[],
+  period: PeriodFilter,
+  reportLabel: string
+): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 15;
+  const maxLineWidth = pageWidth - margin * 2;
+  const report = buildExecutiveReport(analytics, experiments, entries, period);
+  let y = 20;
+
+  const write = (
+    text: string,
+    options: { size?: number; bold?: boolean; color?: [number, number, number]; gap?: number; maxLines?: number } = {}
+  ) => {
+    const { size = 9, bold = false, color = [45, 58, 68], gap = 1.4, maxLines } = options;
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(size);
+    doc.setTextColor(color[0], color[1], color[2]);
+    const lineHeight = size * 0.45 + 0.9;
+    let lines = doc.splitTextToSize(pdfSafe(text), maxLineWidth);
+    if (maxLines && lines.length > maxLines) {
+      lines = lines.slice(0, maxLines);
+      lines[maxLines - 1] = `${lines[maxLines - 1]}…`;
+    }
+    for (const line of lines) {
+      if (y > pageHeight - 16) return;
+      doc.text(line, margin, y);
+      y += lineHeight;
+    }
+    y += gap;
+  };
+
+  const section = (title: string) => {
+    if (y > pageHeight - 24) return;
+    y += 2;
+    doc.setDrawColor(59, 111, 143);
+    doc.setLineWidth(0.4);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 5;
+    write(title, { size: 10, bold: true, color: [44, 88, 115], gap: 1.2 });
+  };
+
+  doc.setFillColor(240, 245, 248);
+  doc.rect(margin, y - 7, maxLineWidth, 22, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(44, 88, 115);
+  doc.text('PulseTrack - Relatório Executivo', margin + 4, y);
+  y += 7;
+  write(
+    [
+      `Período: ${periodLabel(period)}`,
+      `Emitido em: ${new Date().toLocaleDateString('pt-BR')}`,
+      reportLabel.trim() ? `Identificação: ${reportLabel.trim()}` : '',
+    ]
+      .filter(Boolean)
+      .join('  |  '),
+    { size: 8.5, color: [73, 88, 102], gap: 2 }
+  );
+
+  section('1. Padrão dominante');
+  write(report.dominantPattern.title, { size: 10.5, bold: true, gap: 0.6 });
+  write(report.dominantPattern.detail, { size: 9, maxLines: 4 });
+
+  section('2. Três insights principais');
+  if (report.insights.length === 0) {
+    write('Nenhum insight com base suficiente neste período.', { size: 9, color: [110, 122, 134] });
+  } else {
+    report.insights.forEach((insight, index) => {
+      write(`${index + 1}. ${insight.title}`, { size: 9.5, bold: true, gap: 0.3 });
+      write(insight.summary, { size: 9, maxLines: 3, gap: 0.3 });
+      write(insight.basis, { size: 8, color: [110, 122, 134], maxLines: 2, gap: 1 });
+    });
+  }
+
+  section('3. Evolução');
+  write(report.evolution.label, { size: 9.5, bold: true, gap: 0.3 });
+  write(report.evolution.description, { size: 9, maxLines: 4 });
+
+  section('4. Cobertura de dados');
+  if (report.coverage.length === 0) {
+    write('Nenhum eixo com base no período.', { size: 9, color: [110, 122, 134] });
+  } else {
+    write(
+      report.coverage
+        .map((entry) => `${entry.label}: informado em ${entry.answered} de ${entry.base}`)
+        .join(' | '),
+      { size: 8.5, maxLines: 4 }
+    );
+    write('Campos não respondidos não entram em médias: o relatório não presume valores.', {
+      size: 8,
+      color: [110, 122, 134],
+      maxLines: 2,
+    });
+  }
+
+  section('5. Experimentos observados');
+  if (report.experiments.length === 0) {
+    write('Nenhuma hipótese acompanhada nas datas deste período.', {
+      size: 9,
+      color: [110, 122, 134],
+    });
+  } else {
+    for (const experiment of report.experiments.slice(0, 2)) {
+      write(experiment.heading, { size: 9.5, bold: true, gap: 0.3 });
+      for (const line of experiment.lines) {
+        write(line, { size: 8, maxLines: 2, gap: 0.2 });
+      }
+      y += 1;
+    }
+    if (report.experiments.length > 2) {
+      write(
+        `+ ${report.experiments.length - 2} observação(ões) neste período — descritas no relatório clínico completo.`,
+        { size: 8, color: [110, 122, 134] }
+      );
+    }
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(110, 122, 134);
+  doc.text(
+    pdfSafe(
+      'Resumo executivo gerado localmente. Não substitui avaliação médica. Dados brutos disponíveis no relatório completo e no CSV.'
+    ),
+    margin,
+    pageHeight - 8
+  );
+
+  doc.save(`PulseTrack_Relatorio_Executivo_${toLocalIsoDate()}.pdf`);
 }

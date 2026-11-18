@@ -1,21 +1,37 @@
 import React, { useRef, useState } from 'react';
 import { Download, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
-import { BehaviorCategory, PulseEntry, UserPreferences } from '../types/pulsetrack';
+import { BehaviorCategory, Experiment, PulseEntry, UserPreferences } from '../types/pulsetrack';
 import { toLocalIsoDate } from '../utils/analytics';
+import {
+  deleteCategory,
+  deleteItem,
+  renameCategory,
+  renameItem,
+  restoreCategory,
+  restoreItem,
+} from '../utils/categories';
 import { buildBackupJson, parseBackupJson } from '../utils/storage';
 
 interface CategoriesViewProps {
   categories: BehaviorCategory[];
   entries: PulseEntry[];
+  experiments: Experiment[];
   preferences: UserPreferences;
   onUpdateCategories: (next: BehaviorCategory[]) => void;
   onResetDefaultCategories: () => void;
-  onImportBackup: (entries: PulseEntry[], categories: BehaviorCategory[], prefs?: UserPreferences) => void;
+  onImportBackup: (
+    entries: PulseEntry[],
+    categories: BehaviorCategory[],
+    prefs?: UserPreferences,
+    experiments?: Experiment[]
+  ) => void;
   onLoadSampleData: () => void;
   onClearAllEntries: () => void;
   onToggleFocusModeDefault: () => void;
   onToggleShowSexualCategory: () => void;
   onToggleTrackCycle: () => void;
+  /** Reabre o onboarding manualmente — ele nunca abre sozinho de novo. */
+  onRestartOnboarding: () => void;
   onFeedback: (msg: string) => void;
 }
 
@@ -24,6 +40,7 @@ const COLOR_SWATCHES = ['#3B6F8F', '#5B8260', '#C85E42', '#B8893A', '#7B6F94', '
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   categories,
   entries,
+  experiments,
   preferences,
   onUpdateCategories,
   onResetDefaultCategories,
@@ -33,6 +50,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onToggleFocusModeDefault,
   onToggleShowSexualCategory,
   onToggleTrackCycle,
+  onRestartOnboarding,
   onFeedback,
 }) => {
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -56,6 +74,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       color: newCategoryColor,
       active: true,
       items: [],
+      version: 2,
+      updatedAt: new Date().toISOString(),
     };
     onUpdateCategories([...categories, newCat]);
     setNewCategoryName('');
@@ -70,14 +90,19 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   };
 
   const handleDeleteCategory = (catId: string, catName: string) => {
-    onUpdateCategories(categories.filter((c) => c.id !== catId));
-    onFeedback(`Categoria "${catName}" removida (registros antigos permanecem no histórico).`);
+    const result = deleteCategory(categories, catId, entries);
+    onUpdateCategories(result.categories);
+    onFeedback(
+      result.archived
+        ? `Categoria "${catName}" arquivada: ela tem registros no histórico e não pode ser apagada. Você pode restaurá-la depois.`
+        : `Categoria "${catName}" removida (não havia registros usando seus itens).`
+    );
   };
 
   const handleSaveCategoryName = (catId: string) => {
     const trimmed = editingCatName.trim();
     if (!trimmed) return;
-    onUpdateCategories(categories.map((c) => (c.id === catId ? { ...c, name: trimmed } : c)));
+    onUpdateCategories(renameCategory(categories, catId, trimmed));
     setEditingCatId(null);
     onFeedback('Nome da categoria atualizado.');
   };
@@ -90,7 +115,17 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         c.id === catId
           ? {
               ...c,
-              items: [...c.items, { id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`, label, active: true }],
+              version: 2,
+              updatedAt: new Date().toISOString(),
+              items: [
+                ...c.items,
+                {
+                  id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+                  label,
+                  active: true,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
             }
           : c
       )
@@ -105,7 +140,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         c.id === catId
           ? {
               ...c,
-              items: c.items.map((item) => (item.id === itemId ? { ...item, active: !item.active } : item)),
+              version: 2,
+              updatedAt: new Date().toISOString(),
+              items: c.items.map((item) =>
+                item.id === itemId ? { ...item, active: !item.active } : item
+              ),
             }
           : c
       )
@@ -115,33 +154,25 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const handleSaveSubItem = (catId: string, itemId: string) => {
     const trimmed = editingItemLabel.trim();
     if (!trimmed) return;
-    onUpdateCategories(
-      categories.map((c) =>
-        c.id === catId
-          ? {
-              ...c,
-              items: c.items.map((item) => (item.id === itemId ? { ...item, label: trimmed } : item)),
-            }
-          : c
-      )
-    );
+    onUpdateCategories(renameItem(categories, catId, itemId, trimmed));
     setEditingItemId(null);
-    onFeedback('Subitem atualizado.');
+    onFeedback(
+      'Item renomeado. O histórico anterior continua ligado ao mesmo item (o nome antigo fica como alias).'
+    );
   };
 
-  const handleDeleteSubItem = (catId: string, itemId: string) => {
-    onUpdateCategories(
-      categories.map((c) =>
-        c.id === catId
-          ? { ...c, items: c.items.filter((item) => item.id !== itemId) }
-          : c
-      )
+  const handleDeleteSubItem = (catId: string, itemId: string, label: string) => {
+    const result = deleteItem(categories, catId, itemId, entries);
+    onUpdateCategories(result.categories);
+    onFeedback(
+      result.archived
+        ? `"${label}" arquivado: já aparece em registros antigos, então não é apagado. Você pode restaurá-lo depois.`
+        : `"${label}" removido (nenhum registro usava este item).`
     );
-    onFeedback('Subitem removido.');
   };
 
   const handleExportJson = () => {
-    const content = buildBackupJson(entries, categories, preferences);
+    const content = buildBackupJson(entries, categories, preferences, experiments);
     const blob = new Blob([content], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -164,7 +195,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         onFeedback('Arquivo inválido. Selecione um backup JSON gerado pelo PulseTrack.');
         return;
       }
-      onImportBackup(result.entries, result.categories, result.preferences);
+      onImportBackup(
+        result.entries,
+        result.categories,
+        result.preferences,
+        result.experiments
+      );
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -274,7 +310,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
       {/* Lista de categorias editáveis */}
       <div className="space-y-5">
-        {categories.map((cat) => (
+        {categories.filter((cat) => !cat.archived).map((cat) => (
           <section
             key={cat.id}
             className="rounded-2xl border p-5 sm:p-6 space-y-4"
@@ -376,7 +412,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
             {/* Subitens */}
             <ul className="divide-y" style={{ borderColor: 'var(--border-hairline)' }}>
-              {cat.items.map((item) => (
+              {cat.items.filter((item) => !item.archived).map((item) => (
                 <li
                   key={item.id}
                   className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
@@ -454,7 +490,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteSubItem(cat.id, item.id)}
+                          onClick={() => handleDeleteSubItem(cat.id, item.id, item.label)}
                           aria-label={`Remover ${item.label}`}
                           className="min-h-[48px] min-w-[48px] rounded-lg border inline-flex items-center justify-center cursor-pointer"
                           style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
@@ -467,6 +503,42 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 </li>
               ))}
             </ul>
+
+            {cat.items.some((item) => item.archived) && (
+              <div className="pt-2 space-y-2">
+                <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Itens arquivados — usados em registros antigos, fora do formulário
+                </p>
+                <ul className="space-y-1.5">
+                  {cat.items
+                    .filter((item) => item.archived)
+                    .map((item) => (
+                      <li
+                        key={item.id}
+                        className="flex items-center justify-between gap-3 text-sm"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        <span className="line-through">{item.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUpdateCategories(restoreItem(categories, cat.id, item.id));
+                            onFeedback(`"${item.label}" restaurado no formulário.`);
+                          }}
+                          className="min-h-[48px] px-3.5 rounded-lg border text-xs font-medium cursor-pointer shrink-0"
+                          style={{
+                            backgroundColor: 'var(--bg-elevated)',
+                            borderColor: 'var(--border-hairline)',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          Restaurar
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
 
             {/* Adicionar subitem */}
             <form
@@ -506,6 +578,56 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         ))}
       </div>
 
+      {categories.some((cat) => cat.archived) && (
+        <section
+          className="rounded-2xl border p-5 sm:p-6 space-y-3"
+          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
+        >
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Categorias arquivadas
+          </h2>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Categorias com registros no histórico não são apagadas — ficam fora do formulário e
+            preservam a série antiga. Restaure quando quiser voltar a usá-las.
+          </p>
+          <ul className="space-y-1.5">
+            {categories
+              .filter((cat) => cat.archived)
+              .map((cat) => (
+                <li
+                  key={cat.id}
+                  className="flex items-center justify-between gap-3 text-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      className="w-3 h-3 rounded-sm"
+                      style={{ backgroundColor: cat.color }}
+                      aria-hidden="true"
+                    />
+                    {cat.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateCategories(restoreCategory(categories, cat.id));
+                      onFeedback(`Categoria "${cat.name}" restaurada.`);
+                    }}
+                    className="min-h-[48px] px-3.5 rounded-lg border text-xs font-medium cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      borderColor: 'var(--border-hairline)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    Restaurar
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
+
       {/* Backup, Preferências e Dados Locais */}
       <section
         className="rounded-2xl border p-6 space-y-5"
@@ -541,6 +663,19 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRestartOnboarding}
+            className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium inline-flex items-center gap-2 cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border-hairline)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Rever apresentação inicial (4 telas)
+          </button>
+
           <button
             type="button"
             onClick={onToggleShowSexualCategory}

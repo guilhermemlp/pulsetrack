@@ -1,3 +1,4 @@
+import { migrateCategories } from '../utils/categories';
 import {
   ActivationSignal,
   AwarenessType,
@@ -5,12 +6,14 @@ import {
   BehaviorMode,
   CyclePhase,
   EntryType,
+  FocusArea,
   FunctionalImpactLevel,
   MedicationStatus,
   MoodDefinition,
   MoodStateId,
   MoodSwingDirection,
   MoodSwingWindow,
+  ProfileHint,
   PulseEntry,
   ReducedSleepNeed,
   ResistanceResult,
@@ -325,13 +328,47 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   focusModeDefault: false,
   showSexualCategory: false,
   trackCycle: false,
+  defaultRecordLevel: 'rapido',
   reportLabel: '',
+  focusAreas: [],
+  profileHint: null,
+  packageIds: [],
+  reminderOptIn: false,
+  reminderTime: '20:00',
 };
+
+export const FOCUS_AREA_OPTIONS: Array<{ id: FocusArea; label: string; hint: string }> = [
+  { id: 'emocional', label: 'Humor e emoções', hint: 'Como o dia foi por dentro' },
+  { id: 'ativacao', label: 'Energia e ativação', hint: 'Agitação, hiperfoco, exaustão' },
+  { id: 'sono', label: 'Sono', hint: 'Horas, qualidade e ritmo' },
+  { id: 'comportamentos', label: 'Comportamentos', hint: 'O que fiz e o que ficou no impulso' },
+  { id: 'gatilhos', label: 'Gatilhos e contexto', hint: 'O que aconteceu antes' },
+  { id: 'medicacao', label: 'Medicação', hint: 'Adesão e efeitos percebidos' },
+  { id: 'ciclo', label: 'Ciclo menstrual', hint: 'Relação com humor e energia' },
+  { id: 'seguranca', label: 'Segurança', hint: 'Momentos de risco e apoio' },
+];
+
+export const PROFILE_HINT_OPTIONS: Array<{ id: ProfileHint; label: string }> = [
+  { id: 'neurodivergente', label: 'Neurodivergente (TDAH, autismo ou outro)' },
+  { id: 'humor_oscilante', label: 'Humor muito oscilante' },
+  { id: 'compulsoes', label: 'Compulsões ou impulsos difíceis de conter' },
+  { id: 'ansiedade', label: 'Ansiedade frequente' },
+  { id: 'em_investigacao', label: 'Ainda estou investigando' },
+  { id: 'prefiro_nao_dizer', label: 'Prefiro não dizer' },
+];
 
 /**
  * Categorias e subitens iniciais exatamente conforme especificação clínica do usuário.
  */
 export function createDefaultCategories(): BehaviorCategory[] {
+  return migrateCategories(defaultCategorySeed()).categories;
+}
+
+/**
+ * Semente no formato v1. Passar pela migração garante que o catálogo padrão e o
+ * catálogo restaurado de um backup usem exatamente as mesmas regras de schema.
+ */
+function defaultCategorySeed(): unknown[] {
   return [
     {
       id: 'cat_afetiva',
@@ -426,6 +463,7 @@ type SampleSeed = Omit<
   | 'safetyConcern'
   | 'behaviors'
   | 'sleep'
+  | 'depth'
 > & {
   valence?: number | null;
   moodSwingDirection?: MoodSwingDirection | null;
@@ -472,6 +510,8 @@ function completeSample(seed: SampleSeed): PulseEntry {
 
   return {
     ...seed,
+    // A amostra sempre ilustra o formulário completo, que é o que gera os dados ricos.
+    depth: 'completo',
     moodIntensity,
     valence: seed.valence !== undefined ? seed.valence : deriveSampleValence(seed.moods),
     moodSwingDirection:
