@@ -547,6 +547,16 @@ export default function App() {
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
     >
+      <a
+        href="#inicio"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 min-h-[44px] px-4 py-2 rounded-lg font-medium"
+        style={{
+          backgroundColor: 'var(--color-primary-strong)',
+          color: 'var(--color-primary-ink)',
+        }}
+      >
+        Pular para o conteúdo principal
+      </a>
       {/* Barra superior contratual de 3 zonas (oculta no Modo de Foco para evitar distrações) */}
       {!isFocusLayout && (
         <header
