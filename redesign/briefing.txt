@@ -1,0 +1,142 @@
+# PulseTrack — Briefing de Redesign Completo
+
+## Objetivo
+
+Executar um redesign completo da experiência de uso do PulseTrack, adotando uma direção visual minimalista e priorizando profundidade analítica.
+
+O objetivo não é apenas modernizar o layout. É reorganizar a arquitetura de informação, a navegação, os fluxos de utilização e a apresentação dos dados.
+
+## Nova arquitetura funcional
+
+Organizar a experiência em cinco áreas principais:
+
+1. **Visão geral:** resumo do período atual, registros recentes, check-in e acesso rápido às principais ações.
+2. **Registrar:** check-in, registros rápidos, registros padrão, registros completos, impulsos e comportamentos.
+3. **Diário:** calendário, linha do tempo cronológica, histórico e detalhes dos registros.
+4. **Análises:** humor, energia, sono, impulsos, comportamentos, tendências, comparações, relações temporais e relatórios.
+5. **Ajustes:** categorias, experimentos, preferências, onboarding, acessibilidade, temas, segurança e gerenciamento de dados.
+
+Utilizar navegação inferior em dispositivos móveis e navegação lateral no desktop.
+
+## Direção visual
+
+- Minimalista, limpa e sofisticada.
+- Fundo neutro e superfícies discretas.
+- Espaçamento generoso.
+- Tipografia legível.
+- Hierarquia visual clara.
+- Gráficos com paleta consistente e pouco ruído.
+- Poucas cores de destaque.
+- Temas claro, escuro e alto contraste.
+- Responsividade mobile-first.
+- Redução de movimento respeitada.
+- Acessibilidade por teclado e leitores de tela.
+
+Evitar gamificação, rankings, pontuações, excesso de cartões, cores excessivas e indicadores artificiais de saúde mental.
+
+## Experiência de registro
+
+Preservar os níveis rápido, padrão e completo.
+
+Organizar a entrada por intenção:
+- Humor e energia.
+- Impulso.
+- Comportamento realizado.
+- Registro completo.
+
+Aplicar revelação progressiva dos campos. O usuário deve conseguir registrar o essencial rapidamente e complementar informações quando desejar.
+
+Manter a distinção semântica entre impulso, comportamento efetivamente realizado e consequência relatada.
+
+## Experiência de análise
+
+Transformar Análises no principal ambiente de exploração dos dados.
+
+Implementar filtros compartilhados por período, categorias e tipos de registro.
+
+Disponibilizar:
+- Evolução do humor.
+- Evolução da energia.
+- Sono e suas relações temporais com outras variáveis.
+- Frequência e intensidade dos impulsos.
+- Distribuição dos comportamentos.
+- Consequências relatadas.
+- Comparações entre variáveis.
+- Oscilações e duração dos estados relatados.
+- Relações temporais e padrões exploratórios.
+
+Cada visualização deve informar sua cobertura de dados, quantidade de observações e limitações relevantes.
+
+Permitir navegar do gráfico até os registros originais.
+
+Não confundir correlação com causalidade. Não classificar automaticamente estados como mania, hipomania ou depressão.
+
+## Preservação obrigatória
+
+Preservar:
+- Registros existentes.
+- Identificadores e relações entre registros.
+- Categorias personalizadas.
+- Tipos de registro.
+- Histórico.
+- Dashboard e indicadores.
+- Insights.
+- Experimentos.
+- Exportação CSV/PDF.
+- Backup e restauração.
+- Preferências e temas.
+- Recursos de acessibilidade.
+
+Não alterar o modelo de dados sem necessidade demonstrada.
+
+Aproveitar componentes, tipos, utilitários e serviços existentes.
+
+## Segurança e integridade
+
+Antes de implementar o redesign, verificar os problemas identificados na auditoria anterior:
+- Confirmação real de persistência antes de informar sucesso.
+- Remoção de dados de exemplo sem perda de registros reais.
+- Exclusão e limpeza com confirmação de persistência.
+- Restauração de backup com estratégia segura de recuperação.
+- Tratamento de dias sem classificação e ausência de registros.
+
+Nenhuma operação deve apresentar sucesso antes da confirmação correspondente.
+
+## Processo obrigatório
+
+1. Inspecionar integralmente a versão atual do repositório.
+2. Inventariar todas as telas, funcionalidades, componentes e modelos de dados.
+3. Identificar o que pode ser preservado.
+4. Apresentar a arquitetura atual e a proposta de arquitetura.
+5. Mapear cada funcionalidade antiga para seu novo destino.
+6. Implementar o redesign progressivamente.
+7. Validar desktop e dispositivos móveis.
+8. Executar testes, typecheck, lint e build.
+9. Verificar integridade dos dados e ausência de regressões.
+
+Não recriar funcionalidades que já existem e funcionam.
+
+Não substituir dados reais por dados fictícios.
+
+Não remover recursos apenas porque não aparecem na nova navegação.
+
+Não adicionar dependências sem justificativa.
+
+## Entregáveis
+
+- Diagnóstico da arquitetura atual.
+- Nova arquitetura de navegação.
+- Design system.
+- Telas redesenhadas.
+- Novos fluxos de registro.
+- Novo ambiente analítico.
+- Mapeamento das funcionalidades preservadas.
+- Relatório de alterações.
+- Testes e resultados.
+- Pendências e limitações conhecidas.
+
+## Definição de pronto
+
+O redesign estará concluído quando a nova experiência estiver implementada, os recursos anteriores estiverem preservados, os dados estiverem íntegros, as análises estiverem consistentes e os testes correspondentes tiverem sido executados.
+
+A prioridade é construir uma ferramenta confiável de observação e investigação pessoal, não um aplicativo de diagnóstico ou prescrição clínica.

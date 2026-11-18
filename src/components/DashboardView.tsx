@@ -513,7 +513,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => onNavigate('insights')}
+                onClick={() => onNavigate('analises')}
                 className="min-h-[48px] px-4 py-2 rounded-xl border text-sm font-medium whitespace-nowrap shrink-0 self-start cursor-pointer"
                 style={{
                   backgroundColor: 'var(--bg-surface)',

@@ -145,7 +145,7 @@ export enum CyclePhase {
  */
 export type RecordLevel = 'rapido' | 'padrao' | 'completo';
 
-export type AppTab = 'registrar' | 'painel' | 'insights' | 'historico' | 'categorias' | 'relatorios';
+export type AppTab = 'registrar' | 'visao' | 'diario' | 'analises' | 'ajustes';
 
 export type PeriodFilter = '7' | '14' | '30' | '90' | 'all';
 

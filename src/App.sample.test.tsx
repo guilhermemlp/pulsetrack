@@ -95,7 +95,7 @@ describe('App — dados de exemplo', () => {
     seedApp();
     render(<App />);
 
-    navigate('Painel');
+    navigate('Visão geral');
     fireEvent.click(
       screen.getByRole('button', { name: /Explorar com exemplo longitudinal/ })
     );
@@ -114,7 +114,7 @@ describe('App — dados de exemplo', () => {
     });
     render(<App />);
 
-    navigate('Categorias');
+    navigate('Ajustes');
     fireEvent.click(
       screen.getByRole('button', { name: /Carregar exemplo ilustrativo/ })
     );
@@ -141,7 +141,7 @@ describe('App — dados de exemplo', () => {
     });
     const view = render(<App />);
 
-    navigate('Categorias');
+    navigate('Ajustes');
     const sampleButton = screen.getByRole('button', {
       name: /Carregar exemplo ilustrativo/,
     });
@@ -180,7 +180,7 @@ describe('App — dados de exemplo', () => {
     seedApp([realEntry]);
     render(<App />);
 
-    navigate('Categorias');
+    navigate('Ajustes');
     fireEvent.click(
       screen.getByRole('button', { name: /Carregar exemplo ilustrativo/ })
     );
@@ -209,7 +209,7 @@ describe('App — dados de exemplo', () => {
     seedApp([realEntry]);
     render(<App />);
 
-    navigate('Categorias');
+    navigate('Ajustes');
     fireEvent.click(
       screen.getByRole('button', { name: /Carregar exemplo ilustrativo/ })
     );

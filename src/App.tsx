@@ -61,12 +61,12 @@ import {
   savePreferences,
 } from './utils/storage';
 
-const DESKTOP_NAV_ITEMS: Array<{ id: AppTab; label: string }> = [
-  { id: 'registrar', label: 'Registrar' },
-  { id: 'painel', label: 'Painel' },
-  { id: 'insights', label: 'Insights' },
-  { id: 'historico', label: 'Histórico' },
-  { id: 'categorias', label: 'Categorias' },
+const PRIMARY_NAV_ITEMS: Array<{ id: AppTab; label: string; icon: any }> = [
+  { id: 'registrar', label: 'Registrar', icon: ClipboardPlus },
+  { id: 'visao', label: 'Visão geral', icon: BarChart3 },
+  { id: 'diario', label: 'Diário', icon: Clock },
+  { id: 'analises', label: 'Análises', icon: Lightbulb },
+  { id: 'ajustes', label: 'Ajustes', icon: SlidersHorizontal },
 ];
 
 export default function App() {
@@ -79,6 +79,7 @@ export default function App() {
   const [experiments, setExperiments] = useState<Experiment[]>(() => loadExperiments());
 
   const [activeTab, setActiveTab] = useState<AppTab>('registrar');
+  const [analysisView, setAnalysisView] = useState<'insights' | 'relatorios'>('insights');
   const [period, setPeriod] = useState<PeriodFilter>('14');
   const [editingEntry, setEditingEntry] = useState<PulseEntry | null>(null);
   /** Nível em que o registro reabre ao "salvar e completar depois". */
@@ -200,6 +201,7 @@ export default function App() {
   const handleNavigate = (tab: AppTab) => {
     setActiveTab(tab);
     setEditingEntry(null);
+    if (tab === 'analises') setAnalysisView('insights');
     if (tab !== 'registrar') {
       setFocusMode(false);
     }
@@ -264,7 +266,7 @@ export default function App() {
     if (isEdit) {
       setEditingEntry(null);
       showFeedback('Registro atualizado e salvo localmente.');
-      setActiveTab('historico');
+      setActiveTab('diario');
     } else {
       showFeedback(
         entry.entryType === EntryType.DAILY_CHECKIN
@@ -371,7 +373,7 @@ export default function App() {
       'Dados de exemplo carregados: 14 registros ilustrativos identificados no topo do app. Você pode removê-los sem apagar registros reais.'
     );
     if (activeTab === 'registrar') {
-      setActiveTab('painel');
+      setActiveTab('visao');
     }
     return true;
   };
@@ -545,38 +547,26 @@ export default function App() {
               PulseTrack
             </a>
 
-            {/* Zona 2: Links de navegação limpos (Desktop) */}
-            <nav aria-label="Navegação principal" className="hidden md:flex items-center gap-6">
-              {DESKTOP_NAV_ITEMS.map((item) => {
-                const active = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleNavigate(item.id)}
-                    aria-current={active ? 'page' : undefined}
-                    className="py-2 text-sm font-medium whitespace-nowrap shrink-0 border-b-2 transition-colors cursor-pointer"
-                    style={{
-                      color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
-                      borderColor: active ? 'var(--color-primary-strong)' : 'transparent',
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </nav>
+            {/* Navegação principal migrou para a barra lateral no desktop. */}
 
             {/* Zona 3: 1 ação primária */}
             <div className="flex items-center shrink-0">
               <button
                 type="button"
-                onClick={() => handleNavigate('relatorios')}
+                onClick={() => {
+                  handleNavigate('analises');
+                  setAnalysisView('relatorios');
+                }}
                 className="min-h-[44px] px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
                   backgroundColor:
-                    activeTab === 'relatorios' ? 'var(--color-accent)' : 'var(--color-primary-strong)',
-                  color: activeTab === 'relatorios' ? 'var(--color-accent-ink)' : 'var(--color-primary-ink)',
+                    activeTab === 'analises' && analysisView === 'relatorios'
+                      ? 'var(--color-accent)'
+                      : 'var(--color-primary-strong)',
+                  color:
+                    activeTab === 'analises' && analysisView === 'relatorios'
+                      ? 'var(--color-accent-ink)'
+                      : 'var(--color-primary-ink)',
                 }}
               >
                 Relatórios
@@ -586,6 +576,64 @@ export default function App() {
         </header>
       )}
 
+      <div className="flex flex-1 w-full">
+        {!isFocusLayout && (
+          <aside
+            aria-label="Navegação principal"
+            className="hidden md:flex w-64 shrink-0 flex-col border-r"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-hairline)',
+            }}
+          >
+            <nav className="flex flex-col gap-1 p-3">
+              {PRIMARY_NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleNavigate(item.id)}
+                    aria-current={active ? 'page' : undefined}
+                    className="min-h-[44px] px-3 rounded-xl flex items-center gap-3 text-sm font-medium cursor-pointer"
+                    style={{
+                      backgroundColor: active ? 'var(--color-primary-soft)' : 'transparent',
+                      color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <Icon className="w-5 h-5" aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="mt-auto p-3">
+              <button
+                type="button"
+                onClick={() => {
+                  handleNavigate('analises');
+                  setAnalysisView('relatorios');
+                }}
+                className="min-h-[44px] w-full px-3 rounded-xl flex items-center gap-3 text-sm font-medium cursor-pointer"
+                style={{
+                  backgroundColor:
+                    activeTab === 'analises' && analysisView === 'relatorios'
+                      ? 'var(--color-accent)'
+                      : 'var(--bg-elevated)',
+                  color:
+                    activeTab === 'analises' && analysisView === 'relatorios'
+                      ? 'var(--color-accent-ink)'
+                      : 'var(--text-primary)',
+                }}
+              >
+                <FileText className="w-5 h-5" aria-hidden="true" />
+                <span>Relatórios</span>
+              </button>
+            </div>
+          </aside>
+        )}
+        <div className="flex-1 min-w-0 flex flex-col">
       {/* Faixa de acessibilidade e conforto sensorial (abaixo do cabeçalho) */}
       {!isFocusLayout && (
         <div
@@ -642,10 +690,10 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => handleNavigate('categorias')}
+                onClick={() => handleNavigate('ajustes')}
                 className="md:hidden min-h-[44px] px-3.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 style={{
-                  backgroundColor: activeTab === 'categorias' ? 'var(--color-primary-soft)' : 'var(--bg-surface)',
+                  backgroundColor: activeTab === 'ajustes' ? 'var(--color-primary-soft)' : 'var(--bg-surface)',
                   borderColor: 'var(--border-hairline)',
                   color: 'var(--text-primary)',
                 }}
@@ -769,7 +817,35 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'painel' && (
+        {activeTab === 'analises' && (
+          <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Subáreas de Análises">
+            {[
+              { id: 'insights' as const, label: 'Insights e tendências' },
+              { id: 'relatorios' as const, label: 'Relatórios e exportação' },
+            ].map((item) => {
+              const active = analysisView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setAnalysisView(item.id)}
+                  className="min-h-[44px] px-4 py-2 rounded-xl border text-sm font-medium cursor-pointer"
+                  style={{
+                    backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-surface)',
+                    borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+                    color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'visao' && (
           <DashboardView
             analytics={analytics}
             totalAllEntries={entries.length}
@@ -788,7 +864,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'insights' && (
+        {activeTab === 'analises' && analysisView === 'insights' && (
           <InsightsView
             analytics={analytics}
             totalAllEntries={entries.length}
@@ -799,7 +875,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'historico' && (
+        {activeTab === 'diario' && (
           <HistoryView
             entries={entries}
             categories={categories}
@@ -813,7 +889,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'categorias' && (
+        {activeTab === 'ajustes' && (
           <CategoriesView
             categories={categories}
             entries={entries}
@@ -864,7 +940,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'relatorios' && (
+        {activeTab === 'analises' && analysisView === 'relatorios' && (
           <ReportsView
             filteredEntries={filteredEntries}
             analytics={analytics}
@@ -879,6 +955,9 @@ export default function App() {
           />
         )}
       </main>
+
+        </div>
+      </div>
 
       {/* Rodapé discreto (Desktop) */}
       {!isFocusLayout && (
@@ -906,10 +985,10 @@ export default function App() {
           <div className="grid grid-cols-5 h-16">
             {[
               { id: 'registrar' as AppTab, label: 'Registrar', icon: ClipboardPlus },
-              { id: 'painel' as AppTab, label: 'Painel', icon: BarChart3 },
-              { id: 'insights' as AppTab, label: 'Insights', icon: Lightbulb },
-              { id: 'historico' as AppTab, label: 'Histórico', icon: Clock },
-              { id: 'relatorios' as AppTab, label: 'PDF/CSV', icon: FileText },
+              { id: 'visao' as AppTab, label: 'Visão', icon: BarChart3 },
+              { id: 'diario' as AppTab, label: 'Diário', icon: Clock },
+              { id: 'analises' as AppTab, label: 'Análises', icon: Lightbulb },
+              { id: 'ajustes' as AppTab, label: 'Ajustes', icon: SlidersHorizontal },
             ].map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;

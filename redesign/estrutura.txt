@@ -1,0 +1,135 @@
+src/
+├── app/
+│   ├── App
+│   ├── navigation/
+│   └── layouts/
+│
+├── features/
+│   ├── overview/
+│   ├── records/
+│   │   ├── quick/
+│   │   ├── check-in/
+│   │   └── complete/
+│   ├── diary/
+│   ├── analytics/
+│   │   ├── mood/
+│   │   ├── energy/
+│   │   ├── sleep/
+│   │   ├── impulses/
+│   │   ├── behaviors/
+│   │   └── correlations/
+│   ├── experiments/
+│   └── settings/
+│
+├── components/
+│   ├── navigation/
+│   ├── charts/
+│   ├── forms/
+│   ├── dialogs/
+│   └── ui/
+│
+├── domain/
+│   ├── models/
+│   ├── types/
+│   └── rules/
+│
+├── analytics/
+│   ├── aggregation/
+│   ├── statistics/
+│   └── insights/
+│
+├── storage/
+│   ├── local/
+│   ├── backup/
+│   └── migrations/
+│
+└── accessibility/
+
+
+
+
+Fluxos completos de utilização
+O redesenho deve ser guiado pelas tarefas reais do usuário.
+Fluxo A — Registrar um acontecimento
+1. Entrar em Registrar.
+2. Selecionar impulso, comportamento, humor ou registro completo.
+3. Preencher os campos essenciais.
+4. Adicionar contexto e detalhes, se desejar.
+5. Salvar e retornar à tela anterior.
+6. Encontrar o registro no Diário.
+
+Fluxo B — Investigar uma oscilação
+1. Acessar Análises.
+2. Selecionar o período de 30 ou 90 dias.
+3. Consultar humor e energia.
+4. Adicionar sono ou impulsos à comparação.
+5. Examinar datas e registros relacionados.
+6. Exportar relatório para avaliação profissional.
+
+Fluxo C — Revisar um comportamento
+1. Acessar Análises e selecionar comportamentos.
+2. Escolher uma categoria.
+3. Comparar intensidade, ocorrência e consequências.
+4. Consultar os registros originais.
+5. Editar ou complementar um registro, se necessário.
+
+
+6. Preservação das funcionalidades e dos dados existentes
+Esta parte é obrigatória. Um redesign não pode se transformar em uma reconstrução que descarta funcionalidades ou compromete os registros.
+
+O contexto conhecido do PulseTrack inclui registros rápidos, padrão e completos, categorias personalizáveis, dashboard, histórico, insights, experimentos, relatórios CSV/PDF, segurança e backup/importação e exportação. Também há personalização local, temas e recursos de acessibilidade.
+
+Minha orientação é preservar esses recursos e reorganizar sua apresentação.
+Recurso existente	Destino proposto	Conduta
+Registros rápidos/padrão/completos	Registrar	Preservar e aprimorar
+Humor e energia	Registrar / Análises	Preservar
+Impulsos e comportamentos	Registrar / Análises	Preservar distinções
+Categorias personalizadas	Ajustes / Registrar	Preservar identificadores
+Dashboard	Visão geral	Reorganizar
+Histórico	Diário	Evoluir para linha do tempo
+Insights	Análises	Integrar e revisar
+Experimentos	Ajustes / Análises	Preservar
+CSV e PDF	Análises	Manter exportação
+Backup e restauração	Ajustes	Fortalecer segurança
+Temas e acessibilidade	Ajustes	Preservar
+Onboarding	Primeira experiência	Simplificar e tornar adaptável
+
+Cuidados técnicos que não podem ser ignorados
+A auditoria anterior identificou pontos importantes que precisam ser tratados antes de considerar a experiência concluída:
+1. Há risco de informar sucesso de salvamento sem confirmação confiável da persistência.
+2. A remoção de dados de exemplo pode causar perda de registros reais.
+3. Exclusões e limpeza de dados precisam confirmar a persistência antes de apresentar sucesso.
+4. A restauração de backup precisa ter garantia de recuperação em caso de falha.
+5. Dias sem classificação não podem ser interpretados automaticamente como dias sem episódios.
+Esses problemas não devem ser escondidos pelo redesign. Precisam ser corrigidos na camada de dados e armazenamento.
+
+Recomendação técnica: manter inicialmente a arquitetura de dados, os tipos, os identificadores, a camada de armazenamento local e as funções analíticas existentes. Criar a nova experiência como uma reorganização progressiva da camada de apresentação, com migrações somente quando realmente necessárias.
+
+
+Roadmap de implementação
+Eu não implementaria todas as telas simultaneamente. A mudança precisa ser controlada para que cada etapa possa ser validada.
+Fase	Entrega	Prioridade
+1	Auditoria, arquitetura e inventário funcional	Essencial
+2	Design system e navegação principal	Alta
+3	Visão geral e novo fluxo de registro	Alta
+4	Diário e linha do tempo	Alta
+5	Ambiente analítico completo	Muito alta
+6	Ajustes, onboarding e preferências	Média
+7	Segurança, acessibilidade e regressão	Essencial
+
+A quinta fase recebe prioridade de produto, mas não deve começar antes de os fundamentos de dados estarem confiáveis.
+
+9. Critérios de qualidade do novo PulseTrack
+O redesign só será considerado bem-sucedido quando atender aos seguintes princípios:
+- Uma pessoa consegue registrar um acontecimento sem precisar preencher todos os campos.
+- Os registros rápidos e completos convivem sem duplicar informações.
+- A navegação entre as áreas é previsível.
+- É possível investigar períodos e relações entre variáveis.
+- Todos os gráficos permitem chegar aos registros que originaram seus dados.
+- Dados ausentes são tratados explicitamente.
+- Não há confusão entre impulso e comportamento realizado.
+- Nenhum registro antigo é perdido ou alterado indevidamente.
+- O aplicativo continua utilizável em dispositivos móveis.
+- A experiência funciona com teclado, leitores de tela e alto contraste.
+- Nenhum indicador é apresentado como diagnóstico.
+- Exportação e backup continuam disponíveis.
