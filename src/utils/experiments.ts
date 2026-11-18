@@ -5,7 +5,7 @@ import {
   ExperimentStatus,
   PulseEntry,
 } from '../types/pulsetrack';
-import { isEpisodeEntry, toLocalIsoDate } from './analytics';
+import { hasBehaviorRecord, isEpisodeEntry, toLocalIsoDate } from './analytics';
 
 /**
  * Experimentos são hipóteses do usuário observadas em uma janela de datas.
@@ -27,7 +27,7 @@ export const EXPERIMENT_METRICS: ExperimentMetricDefinition[] = [
     id: 'urge',
     label: 'Intensidade da vontade',
     unit: '/10',
-    description: 'Média da vontade nos episódios registrados.',
+    description: 'Média da vontade nos registros com comportamento.',
     kind: 'average',
   },
   {
@@ -53,9 +53,9 @@ export const EXPERIMENT_METRICS: ExperimentMetricDefinition[] = [
   },
   {
     id: 'episodes',
-    label: 'Episódios comportamentais',
+    label: 'Episódios com ação realizada',
     unit: '',
-    description: 'Quantidade de episódios na janela.',
+    description: 'Quantidade de registros com ação realizada na janela.',
     kind: 'count',
   },
   {
@@ -151,11 +151,15 @@ function statsForWindow(
   }
 
   if (metric === 'urge') {
-    const episodes = entries.filter(isEpisodeEntry);
-    const values = episodes
+    // Vontade pode existir sem ação: impulsos contidos também entram neste eixo.
+    const values = entries
       .map((entry) => entry.urgeIntensity)
       .filter((value): value is number => typeof value === 'number');
-    return { answered: values.length, base: episodes.length, value: averageOrNull(values) };
+    return {
+      answered: values.length,
+      base: entries.filter(hasBehaviorRecord).length,
+      value: averageOrNull(values),
+    };
   }
 
   const read = (entry: PulseEntry): number | null => {

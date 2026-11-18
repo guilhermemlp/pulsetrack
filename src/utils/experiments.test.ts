@@ -129,6 +129,31 @@ describe('janelas do experimento', () => {
     expect(analysis.during.value).toBe(6);
   });
 
+  it('inclui impulso contido na média de vontade', () => {
+    const entries = [
+      urgeEpisode('acao', '2026-11-09', 6),
+      entry('impulso', '2026-11-10', {
+        entryType: EntryType.EPISODE,
+        urgeIntensity: 8,
+        behaviors: [
+          {
+            categoryId: 'cat_financeira',
+            categoryName: 'Financeira',
+            itemId: 'fin_compras',
+            itemLabel: 'Compras impulsivas',
+            mode: BehaviorMode.IMPULSO,
+            harm: false,
+          },
+        ],
+      }),
+      entry('checkin', '2026-11-11'),
+    ];
+
+    const analysis = analyzeExperiment(experiment, entries, '2026-11-20');
+
+    expect(analysis.during).toEqual({ answered: 2, base: 2, value: 7 });
+  });
+
   it('conta episódios como total, sem média', () => {
     const episodesExperiment = createExperiment({
       hypothesis: 'Episódios caem quando durmo melhor',
@@ -140,6 +165,20 @@ describe('janelas do experimento', () => {
       urgeEpisode('antigo', '2026-11-05', 5),
       urgeEpisode('durante', '2026-11-09', 5),
       urgeEpisode('durante2', '2026-11-10', 5),
+      entry('impulso', '2026-11-12', {
+        entryType: EntryType.EPISODE,
+        urgeIntensity: 9,
+        behaviors: [
+          {
+            categoryId: 'cat_financeira',
+            categoryName: 'Financeira',
+            itemId: 'fin_compras',
+            itemLabel: 'Compras impulsivas',
+            mode: BehaviorMode.IMPULSO,
+            harm: false,
+          },
+        ],
+      }),
       entry('checkin', '2026-11-11'),
     ];
 

@@ -551,6 +551,13 @@ function completeSample(seed: SampleSeed): PulseEntry {
   };
 }
 
+export const SAMPLE_ENTRY_ID_PREFIX = 'demo_';
+
+/** Identifica registros ilustrativos sem depender de um campo extra no schema. */
+export function isSampleEntry(entry: Pick<PulseEntry, 'id'>): boolean {
+  return entry.id.startsWith(SAMPLE_ENTRY_ID_PREFIX);
+}
+
 export function createSampleEntries(): PulseEntry[] {
   const now = new Date();
   const daysAgo = (n: number): string => {

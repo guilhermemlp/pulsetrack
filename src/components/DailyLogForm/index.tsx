@@ -6,6 +6,7 @@ import {
   BehaviorMode,
   CyclePhase,
   EntryType,
+  FocusArea,
   FunctionalImpactLevel,
   MedicationStatus,
   MoodStateId,
@@ -21,7 +22,7 @@ import {
   StateDuration,
   ThemeMode,
 } from '../../types/pulsetrack';
-import { ACTIVATION_SIGNAL_OPTIONS, MOOD_DEFINITIONS } from '../../data/defaults';
+import { ACTIVATION_SIGNAL_OPTIONS, FOCUS_AREA_OPTIONS, MOOD_DEFINITIONS } from '../../data/defaults';
 import { toLocalIsoDate } from '../../utils/analytics';
 import {
   clearFormDraft,
@@ -29,14 +30,17 @@ import {
   loadFormDraft,
   saveFormDraft,
 } from '../../utils/storage';
-import { formatDraftTime } from '../../utils/draft';
-import { getRecentBehaviors } from '../../utils/recentBehaviors';
-import { ActivationSection } from './ActivationSection';
 import {
-  BehaviorSection,
-  CreatedBehaviorItem,
+  DailyLogDraft,
+  DRAFT_VERSION,
+  draftHasContent,
+  formatDraftTime,
+  parseFormDraft,
   QuickImpulseAnswer,
-} from './BehaviorSection';
+} from '../../utils/draft';
+import { describeBehaviorMode, getRecentBehaviors } from '../../utils/recentBehaviors';
+import { ActivationSection } from './ActivationSection';
+import { BehaviorSection, CreatedBehaviorItem } from './BehaviorSection';
 import { CollapsibleSection } from '../CollapsibleSection';
 import { DepthSwitch } from './DepthSwitch';
 import { FormActions, FormHeaderActions } from './FormActions';
@@ -51,7 +55,8 @@ interface DailyLogFormProps {
   editingEntry: PulseEntry | null;
   focusMode: boolean;
   onToggleFocusMode: () => void;
-  onSaveEntry: (entry: PulseEntry, isEdit: boolean) => void;
+  /** Devolve `false` se a persistência falhar: nesse caso o rascunho é mantido. */
+  onSaveEntry: (entry: PulseEntry, isEdit: boolean) => boolean | void;
   onCancelEdit: () => void;
   theme: ThemeMode;
   /** Bloco de comportamentos sexuais só aparece se ativado nas preferências. */
@@ -60,13 +65,19 @@ interface DailyLogFormProps {
   trackCycle: boolean;
   /** Profundidade inicial (preferência), usada quando não se está editando um registro. */
   defaultRecordLevel: RecordLevel;
+  /** Áreas escolhidas no onboarding: destacadas no início, sem esconder pilares. */
+  focusAreas: FocusArea[];
   reduceMotion: boolean;
   /** Nível em que um registro salvo para "completar depois" deve reabrir. */
   reopenLevel?: RecordLevel | null;
   /** Cria um subitem na categoria e devolve o item persistido. */
   onCreateBehaviorItem: (categoryId: string, label: string) => CreatedBehaviorItem | null;
   /** Salva agora e reabre o registro em edição para completar depois. */
-  onSaveAndCompleteLater: (entry: PulseEntry, isEdit: boolean, nextLevel: RecordLevel) => void;
+  onSaveAndCompleteLater: (
+    entry: PulseEntry,
+    isEdit: boolean,
+    nextLevel: RecordLevel
+  ) => boolean | void;
   /** Avisa o app quando o rascunho muda (para os cards de "Continuar registro"). */
   onDraftChange: (draft: FormDraft | null) => void;
 }
@@ -80,18 +91,6 @@ function getCurrentTimeStr(): string {
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
-}
-
-/** Lê um valor do rascunho apenas se for do tipo esperado. */
-function readDraft<T>(payload: Record<string, unknown> | undefined, key: string, fallback: T): T {
-  if (!payload || !(key in payload)) return fallback;
-  const value = payload[key];
-  if (value === null) return null as unknown as T;
-  if (Array.isArray(fallback)) return (Array.isArray(value) ? value : fallback) as T;
-  if (typeof fallback === 'number') return (typeof value === 'number' ? value : fallback) as T;
-  if (typeof fallback === 'string') return (typeof value === 'string' ? value : fallback) as T;
-  if (typeof fallback === 'boolean') return (typeof value === 'boolean' ? value : fallback) as T;
-  return (typeof value === 'string' ? value : fallback) as T;
 }
 
 /**
@@ -113,6 +112,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   showSexualCategory,
   trackCycle,
   defaultRecordLevel,
+  focusAreas,
   reduceMotion,
   reopenLevel = null,
   onCreateBehaviorItem,
@@ -121,6 +121,17 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
 }) => {
   const draft = useMemo(() => (editingEntry ? null : loadFormDraft()), [editingEntry]);
   const draftPayload = draft?.payload;
+  // Um único ponto de leitura: o mesmo tipo usado para gravar reconstrói o formulário.
+  const restored = useMemo(
+    () =>
+      parseFormDraft(draftPayload, {
+        date: getCurrentDateStr(),
+        time: getCurrentTimeStr(),
+        level: defaultRecordLevel,
+        entryType: EntryType.DAILY_CHECKIN,
+      }),
+    [draftPayload, defaultRecordLevel]
+  );
 
   const [draftRestored, setDraftRestored] = useState<boolean>(Boolean(draft));
   /** Momento do último salvamento automático (ISO) — mostrado como "rascunho salvo às HH:mm". */
@@ -145,121 +156,95 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   }, [draftSavedAt, syncDraftTimestamp]);
   /** Profundidade escolhida: nunca é inferida dos campos preenchidos. */
   const [level, setLevel] = useState<RecordLevel>(
-    () => editingEntry?.depth ?? defaultRecordLevel
+    () => editingEntry?.depth ?? restored.level
   );
-  const [quickImpulseAnswer, setQuickImpulseAnswer] = useState<QuickImpulseAnswer>(null);
+  const [quickImpulseAnswer, setQuickImpulseAnswer] = useState<QuickImpulseAnswer>(
+    restored.quickImpulseAnswer
+  );
   const [moodError, setMoodError] = useState<string | null>(null);
 
-  const [entryType, setEntryType] = useState<EntryType>(EntryType.DAILY_CHECKIN);
-  const [date, setDate] = useState<string>(() => readDraft<string>(draftPayload, 'date', getCurrentDateStr()));
-  const [time, setTime] = useState<string>(() => readDraft<string>(draftPayload, 'time', getCurrentTimeStr()));
+  const [entryType, setEntryType] = useState<EntryType>(restored.entryType);
+  const [date, setDate] = useState<string>(restored.date);
+  const [time, setTime] = useState<string>(restored.time);
 
   // Pilar 1: Estado Emocional
-  const [moods, setMoods] = useState<MoodStateId[]>(() => readDraft<MoodStateId[]>(draftPayload, 'moods', []));
-  const [moodIntensity, setMoodIntensity] = useState<Record<string, number>>(() =>
-    readDraft<Record<string, number>>(draftPayload, 'moodIntensity', {})
+  const [moods, setMoods] = useState<MoodStateId[]>(restored.moods);
+  const [moodIntensity, setMoodIntensity] = useState<Record<string, number>>(
+    restored.moodIntensity
   );
-  const [moodOtherText, setMoodOtherText] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'moodOtherText', '')
+  const [moodOtherText, setMoodOtherText] = useState<string>(restored.moodOtherText);
+  const [valence, setValence] = useState<number | null>(restored.valence);
+  const [hadMoodSwing, setHadMoodSwing] = useState<boolean>(restored.hadMoodSwing);
+  const [moodSwingDirection, setMoodSwingDirection] = useState<MoodSwingDirection | null>(
+    restored.moodSwingDirection
   );
-  const [valence, setValence] = useState<number | null>(() => readDraft<number | null>(draftPayload, 'valence', null));
-  const [hadMoodSwing, setHadMoodSwing] = useState<boolean>(() =>
-    readDraft<boolean>(draftPayload, 'hadMoodSwing', false)
+  const [moodSwingWindow, setMoodSwingWindow] = useState<MoodSwingWindow | null>(
+    restored.moodSwingWindow
   );
-  const [moodSwingDirection, setMoodSwingDirection] = useState<MoodSwingDirection | null>(() =>
-    readDraft<MoodSwingDirection | null>(draftPayload, 'moodSwingDirection', null)
-  );
-  const [moodSwingWindow, setMoodSwingWindow] = useState<MoodSwingWindow | null>(() =>
-    readDraft<MoodSwingWindow | null>(draftPayload, 'moodSwingWindow', null)
-  );
-  const [moodSwingDescription, setMoodSwingDescription] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'moodSwingDescription', '')
+  const [moodSwingDescription, setMoodSwingDescription] = useState<string>(
+    restored.moodSwingDescription
   );
 
   // Pilar 2: Estado de Ativação e Sono
-  const [energyLevel, setEnergyLevel] = useState<number | null>(() =>
-    readDraft<number | null>(draftPayload, 'energyLevel', null)
+  const [energyLevel, setEnergyLevel] = useState<number | null>(restored.energyLevel);
+  const [sleepHours, setSleepHours] = useState<number | null>(restored.sleepHours);
+  const [sleepQuality, setSleepQuality] = useState<SleepQuality | null>(
+    restored.sleepQuality
   );
-  const [sleepHours, setSleepHours] = useState<number | null>(() =>
-    readDraft<number | null>(draftPayload, 'sleepHours', null)
+  const [reducedSleepNeed, setReducedSleepNeed] = useState<ReducedSleepNeed | null>(
+    restored.reducedSleepNeed
   );
-  const [sleepQuality, setSleepQuality] = useState<SleepQuality | null>(() =>
-    readDraft<SleepQuality | null>(draftPayload, 'sleepQuality', null)
+  const [noFatigueAfterShortSleep, setNoFatigueAfterShortSleep] = useState<boolean | null>(
+    restored.noFatigueAfterShortSleep
   );
-  const [reducedSleepNeed, setReducedSleepNeed] = useState<ReducedSleepNeed | null>(() =>
-    readDraft<ReducedSleepNeed | null>(draftPayload, 'reducedSleepNeed', null)
+  const [bedTime, setBedTime] = useState<string>(restored.bedTime);
+  const [wakeTime, setWakeTime] = useState<string>(restored.wakeTime);
+  const [latencyMinutes, setLatencyMinutes] = useState<number | null>(
+    restored.latencyMinutes
   );
-  const [noFatigueAfterShortSleep, setNoFatigueAfterShortSleep] = useState<boolean | null>(() =>
-    readDraft<boolean | null>(draftPayload, 'noFatigueAfterShortSleep', null)
+  const [awakenings, setAwakenings] = useState<number | null>(restored.awakenings);
+  const [stateDuration, setStateDuration] = useState<StateDuration | null>(
+    restored.stateDuration
   );
-  const [bedTime, setBedTime] = useState<string>(() => readDraft<string>(draftPayload, 'bedTime', ''));
-  const [wakeTime, setWakeTime] = useState<string>(() => readDraft<string>(draftPayload, 'wakeTime', ''));
-  const [latencyMinutes, setLatencyMinutes] = useState<number | null>(() =>
-    readDraft<number | null>(draftPayload, 'latencyMinutes', null)
-  );
-  const [awakenings, setAwakenings] = useState<number | null>(() =>
-    readDraft<number | null>(draftPayload, 'awakenings', null)
-  );
-  const [stateDuration, setStateDuration] = useState<StateDuration | null>(() =>
-    readDraft<StateDuration | null>(draftPayload, 'stateDuration', null)
-  );
-  const [activationSignals, setActivationSignals] = useState<ActivationSignal[]>(() =>
-    readDraft<ActivationSignal[]>(draftPayload, 'activationSignals', [])
+  const [activationSignals, setActivationSignals] = useState<ActivationSignal[]>(
+    restored.activationSignals
   );
 
   // Pilar 3: Comportamento
-  const [triggerContext, setTriggerContext] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'triggerContext', '')
+  const [triggerContext, setTriggerContext] = useState<string>(restored.triggerContext);
+  const [behaviors, setBehaviors] = useState<SelectedBehavior[]>(restored.behaviors);
+  const [behaviorOtherText, setBehaviorOtherText] = useState<string>(
+    restored.behaviorOtherText
   );
-  const [behaviors, setBehaviors] = useState<SelectedBehavior[]>(() =>
-    readDraft<SelectedBehavior[]>(draftPayload, 'behaviors', [])
-  );
-  const [behaviorOtherText, setBehaviorOtherText] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'behaviorOtherText', '')
-  );
-  const [awareness, setAwareness] = useState<AwarenessType | null>(() =>
-    readDraft<AwarenessType | null>(draftPayload, 'awareness', null)
-  );
-  const [resisted, setResisted] = useState<ResistanceResult | null>(() =>
-    readDraft<ResistanceResult | null>(draftPayload, 'resisted', null)
-  );
-  const [urgeIntensity, setUrgeIntensity] = useState<number | null>(() =>
-    readDraft<number | null>(draftPayload, 'urgeIntensity', null)
-  );
-  const [feelingDuring, setFeelingDuring] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'feelingDuring', '')
-  );
-  const [feelingAfter, setFeelingAfter] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'feelingAfter', '')
-  );
+  const [awareness, setAwareness] = useState<AwarenessType | null>(restored.awareness);
+  const [resisted, setResisted] = useState<ResistanceResult | null>(restored.resisted);
+  const [urgeIntensity, setUrgeIntensity] = useState<number | null>(restored.urgeIntensity);
+  const [feelingDuring, setFeelingDuring] = useState<string>(restored.feelingDuring);
+  const [feelingAfter, setFeelingAfter] = useState<string>(restored.feelingAfter);
 
   // Impacto Funcional & Contexto do Dia
-  const [impactWork, setImpactWork] = useState<FunctionalImpactLevel | null>(() =>
-    readDraft<FunctionalImpactLevel | null>(draftPayload, 'impactWork', null)
+  const [impactWork, setImpactWork] = useState<FunctionalImpactLevel | null>(
+    restored.impactWork
   );
-  const [impactRelationships, setImpactRelationships] = useState<FunctionalImpactLevel | null>(() =>
-    readDraft<FunctionalImpactLevel | null>(draftPayload, 'impactRelationships', null)
+  const [impactRelationships, setImpactRelationships] = useState<FunctionalImpactLevel | null>(
+    restored.impactRelationships
   );
-  const [impactRoutine, setImpactRoutine] = useState<FunctionalImpactLevel | null>(() =>
-    readDraft<FunctionalImpactLevel | null>(draftPayload, 'impactRoutine', null)
+  const [impactRoutine, setImpactRoutine] = useState<FunctionalImpactLevel | null>(
+    restored.impactRoutine
   );
-  const [impactNote, setImpactNote] = useState<string>(() => readDraft<string>(draftPayload, 'impactNote', ''));
-  const [medicationStatus, setMedicationStatus] = useState<MedicationStatus | null>(() =>
-    readDraft<MedicationStatus | null>(draftPayload, 'medicationStatus', null)
+  const [impactNote, setImpactNote] = useState<string>(restored.impactNote);
+  const [medicationStatus, setMedicationStatus] = useState<MedicationStatus | null>(
+    restored.medicationStatus
   );
-  const [medicationEffects, setMedicationEffects] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'medicationEffects', '')
+  const [medicationEffects, setMedicationEffects] = useState<string>(
+    restored.medicationEffects
   );
-  const [cyclePhase, setCyclePhase] = useState<CyclePhase | null>(() =>
-    readDraft<CyclePhase | null>(draftPayload, 'cyclePhase', null)
-  );
-  const [notes, setNotes] = useState<string>(() => readDraft<string>(draftPayload, 'notes', ''));
-  const [dayEvents, setDayEvents] = useState<string[]>(() => readDraft<string[]>(draftPayload, 'dayEvents', []));
-  const [dayEventsNote, setDayEventsNote] = useState<string>(() =>
-    readDraft<string>(draftPayload, 'dayEventsNote', '')
-  );
-  const [safetyConcern, setSafetyConcern] = useState<SafetyConcern | null>(() =>
-    readDraft<SafetyConcern | null>(draftPayload, 'safetyConcern', null)
+  const [cyclePhase, setCyclePhase] = useState<CyclePhase | null>(restored.cyclePhase);
+  const [notes, setNotes] = useState<string>(restored.notes);
+  const [dayEvents, setDayEvents] = useState<string[]>(restored.dayEvents);
+  const [dayEventsNote, setDayEventsNote] = useState<string>(restored.dayEventsNote);
+  const [safetyConcern, setSafetyConcern] = useState<SafetyConcern | null>(
+    restored.safetyConcern
   );
 
   const [showOptionalInFocus, setShowOptionalInFocus] = useState<boolean>(false);
@@ -318,8 +303,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     }
   }, [editingEntry, reopenLevel]);
 
-  const draftSnapshot = useMemo(
+  const draftSnapshot = useMemo<DailyLogDraft>(
     () => ({
+      version: DRAFT_VERSION,
+      entryType,
+      level,
+      quickImpulseAnswer,
       date,
       time,
       moods,
@@ -362,6 +351,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       safetyConcern,
     }),
     [
+      entryType,
+      level,
+      quickImpulseAnswer,
       date,
       time,
       moods,
@@ -409,20 +401,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   // Só grava quando há algo respondido, para não restaurar um formulário vazio.
   useEffect(() => {
     if (editingEntry) return;
-    const hasContent =
-      draftSnapshot.moods.length > 0 ||
-      Boolean(draftSnapshot.moodOtherText) ||
-      Boolean(draftSnapshot.behaviorOtherText) ||
-      Boolean(draftSnapshot.triggerContext) ||
-      Boolean(draftSnapshot.notes) ||
-      draftSnapshot.dayEvents.length > 0 ||
-      draftSnapshot.valence !== null ||
-      draftSnapshot.energyLevel !== null ||
-      draftSnapshot.sleepHours !== null ||
-      draftSnapshot.urgeIntensity !== null ||
-      draftSnapshot.safetyConcern !== null;
-
-    if (!hasContent) {
+    if (!draftHasContent(draftSnapshot)) {
       clearFormDraft();
       setDraftSavedAt(null);
       draftSavedAtRef.current = null;
@@ -631,7 +610,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     (activationSignals.length > 0 ? 1 : 0);
 
   const behaviorChips = [
-    ...behaviors.slice(0, 3).map((b) => `${b.itemLabel} · ${b.mode === BehaviorMode.IMPULSO ? 'impulso' : 'fiz'}`),
+    ...behaviors
+      .slice(0, 3)
+      .map((b) => `${b.itemLabel} · ${describeBehaviorMode(b.mode)}`),
     ...(behaviors.length > 3 ? [`+${behaviors.length - 3}`] : []),
     ...(behaviors.length === 0 && behaviorOtherText.trim() ? [behaviorOtherText.trim()] : []),
     ...(urgeIntensity !== null ? [`Vontade ${urgeIntensity}/10`] : []),
@@ -643,19 +624,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
 
   /** Monta o registro já validado, ou devolve null com o erro no campo correspondente. */
   const buildEntry = (): PulseEntry | null => {
-    if (moods.length === 0) {
-      // O erro aparece dentro do Pilar 1, onde a decisão acontece (com foco no primeiro chip).
-      setMoodError(
-        'Escolha pelo menos um estado emocional (pode ser "Neutro" ou "Outro") antes de salvar.'
-      );
-      setValidationMessage('');
-      return null;
-    }
+    // Humor é opcional: ausência de resposta nunca vira "Neutro" nem impede salvar.
     setMoodError(null);
 
     if (isEpisode && behaviors.length === 0 && !behaviorOtherText.trim()) {
       setValidationMessage(
-        'Como você escolheu "Episódio comportamental", selecione pelo menos um comportamento (mesmo que tenha ficado só no impulso) ou mude para "Check-in diário (sem episódio)".'
+        'Como você escolheu registrar um comportamento, selecione pelo menos um comportamento (mesmo que tenha ficado só no impulso) ou volte para "Check-in diário".'
       );
       return null;
     }
@@ -726,7 +700,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     e.preventDefault();
     const entry = buildEntry();
     if (!entry) return;
-    onSaveEntry(entry, Boolean(editingEntry));
+    const saved = onSaveEntry(entry, Boolean(editingEntry));
+    // Falha de persistência: o formulário e o rascunho continuam intactos.
+    if (saved === false) return;
     if (!editingEntry) {
       resetForm();
     }
@@ -814,6 +790,10 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       node
     );
 
+  const focusLabels = FOCUS_AREA_OPTIONS.filter((option) =>
+    focusAreas.includes(option.id)
+  ).map((option) => option.label);
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -874,6 +854,40 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         </p>
       )}
 
+      {!editingEntry && focusLabels.length > 0 && (
+        <section
+          aria-labelledby="focus-areas-title"
+          className="rounded-xl border px-4 py-3"
+          style={{
+            backgroundColor: 'var(--color-primary-soft)',
+            borderColor: 'var(--color-primary)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          <p id="focus-areas-title" className="text-sm font-semibold">
+            Seu foco inicial
+          </p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Áreas escolhidas no onboarding">
+            {focusLabels.map((label) => (
+              <li
+                key={label}
+                className="text-xs font-medium px-2.5 py-1 rounded-full border"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--color-primary)',
+                }}
+              >
+                {label}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+            As áreas acima ficam em destaque, mas nenhum pilar foi escondido. Ajuste a qualquer
+            momento em Categorias.
+          </p>
+        </section>
+      )}
+
       {/* Seletor de tipo de registro: Check-in independente vs Episódio */}
       <section
         aria-label="Tipo de registro"
@@ -923,7 +937,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
                 color: 'var(--text-primary)',
               }}
             >
-              Episódio comportamental
+              Comportamento (ação ou impulso)
             </button>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Comece pelo essencial — dá para aprofundar depois.
@@ -953,10 +967,10 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             }}
           >
             <span className="block text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Check-in diário (sem episódio compulsivo)
+              Check-in diário (sem comportamento registrado)
             </span>
             <span className="block text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-              Acompanhe humor, energia, sono, sinais e rotina mesmo em dias calmos.
+              Acompanhe humor, energia, sono, sinais e rotina — inclusive impulsos contidos.
             </span>
           </button>
 
@@ -976,10 +990,11 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             }}
           >
             <span className="block text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Episódio comportamental
+              Comportamento: ação ou impulso
             </span>
             <span className="block text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-              Registre humor, ativação/sono e o comportamento impulsivo ou compulsivo ocorrido.
+              Registre uma ação efetivamente realizada e/ou um impulso que ficou só na
+              vontade. Só a ação conta como episódio realizado.
             </span>
           </button>
           </div>

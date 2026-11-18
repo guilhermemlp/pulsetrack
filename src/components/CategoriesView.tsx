@@ -1,7 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
-import { BehaviorCategory, Experiment, PulseEntry, UserPreferences } from '../types/pulsetrack';
+import {
+  BehaviorCategory,
+  Experiment,
+  FocusArea,
+  PulseEntry,
+  RecordLevel,
+  UserPreferences,
+} from '../types/pulsetrack';
+import { FOCUS_AREA_OPTIONS } from '../data/defaults';
 import { toLocalIsoDate } from '../utils/analytics';
+import { downloadJson } from '../utils/download';
 import {
   deleteCategory,
   deleteItem,
@@ -10,21 +19,23 @@ import {
   restoreCategory,
   restoreItem,
 } from '../utils/categories';
-import { buildBackupJson, parseBackupJson } from '../utils/storage';
+import {
+  BackupPayload,
+  BackupValidationError,
+  buildBackupJson,
+  validateBackupJson,
+} from '../utils/storage';
 
 interface CategoriesViewProps {
   categories: BehaviorCategory[];
   entries: PulseEntry[];
   experiments: Experiment[];
   preferences: UserPreferences;
+  onChangePreferences: (patch: Partial<UserPreferences>) => void;
   onUpdateCategories: (next: BehaviorCategory[]) => void;
   onResetDefaultCategories: () => void;
-  onImportBackup: (
-    entries: PulseEntry[],
-    categories: BehaviorCategory[],
-    prefs?: UserPreferences,
-    experiments?: Experiment[]
-  ) => void;
+  /** Só é chamado depois da confirmação; devolve se a gravação foi concluída. */
+  onImportBackup: (backup: BackupPayload) => boolean;
   onLoadSampleData: () => void;
   onClearAllEntries: () => void;
   onToggleFocusModeDefault: () => void;
@@ -37,11 +48,18 @@ interface CategoriesViewProps {
 
 const COLOR_SWATCHES = ['#3B6F8F', '#5B8260', '#C85E42', '#B8893A', '#7B6F94', '#5D7A8C'];
 
+const RECORD_LEVEL_OPTIONS: Array<{ id: RecordLevel; label: string }> = [
+  { id: 'rapido', label: 'Rápido' },
+  { id: 'padrao', label: 'Padrão' },
+  { id: 'completo', label: 'Completo' },
+];
+
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
   categories,
   entries,
   experiments,
   preferences,
+  onChangePreferences,
   onUpdateCategories,
   onResetDefaultCategories,
   onImportBackup,
@@ -62,7 +80,38 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [editingItemLabel, setEditingItemLabel] = useState('');
   const [confirmResetCats, setConfirmResetCats] = useState(false);
   const [confirmClearEntries, setConfirmClearEntries] = useState(false);
+  const [pendingImport, setPendingImport] = useState<BackupPayload | null>(null);
+  const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const importConfirmTitleRef = useRef<HTMLHeadingElement>(null);
+  const clearTriggerRef = useRef<HTMLButtonElement>(null);
+  const clearCancelRef = useRef<HTMLButtonElement>(null);
+  const returnClearFocus = useRef(false);
+
+  useEffect(() => {
+    if (pendingImport) {
+      importConfirmTitleRef.current?.focus();
+    }
+  }, [pendingImport]);
+
+  useEffect(() => {
+    if (confirmClearEntries) {
+      clearCancelRef.current?.focus();
+      return;
+    }
+    if (returnClearFocus.current) {
+      clearTriggerRef.current?.focus();
+      returnClearFocus.current = false;
+    }
+  }, [confirmClearEntries]);
+
+  const toggleFocusArea = (area: FocusArea) => {
+    const next = preferences.focusAreas.includes(area)
+      ? preferences.focusAreas.filter((item) => item !== area)
+      : [...preferences.focusAreas, area];
+    onChangePreferences({ focusAreas: next });
+  };
 
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,37 +222,107 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   const handleExportJson = () => {
     const content = buildBackupJson(entries, categories, preferences, experiments);
-    const blob = new Blob([content], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `PulseTrack_Backup_${toLocalIsoDate()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    onFeedback('Backup JSON exportado com sucesso.');
+    const ok = downloadJson(content, `PulseTrack_Backup_${toLocalIsoDate()}.json`);
+    onFeedback(
+      ok
+        ? 'Backup JSON exportado com sucesso.'
+        : 'Não foi possível gerar o arquivo de backup neste navegador.'
+    );
+  };
+
+  const importErrorMessage = (error: BackupValidationError): string => {
+    switch (error) {
+      case 'invalid_json':
+        return 'O arquivo selecionado não é um JSON válido. Nada foi alterado.';
+      case 'not_pulsetrack':
+        return 'Este arquivo não é um backup do PulseTrack. Nada foi alterado.';
+      case 'unsupported_version':
+        return 'Este backup foi gerado por uma versão mais nova do PulseTrack e não pode ser importado com segurança. Nada foi alterado.';
+      case 'missing_data':
+        return 'O backup está incompleto: faltam registros ou categorias. Nada foi alterado.';
+      case 'invalid_data':
+        return 'O backup contém dados incompatíveis com esta versão. Nada foi alterado.';
+      default:
+        return 'Não foi possível ler o backup. Nada foi alterado.';
+    }
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImportError('');
     const reader = new FileReader();
     reader.onload = () => {
-      const result = typeof reader.result === 'string' ? parseBackupJson(reader.result) : null;
-      if (!result) {
-        onFeedback('Arquivo inválido. Selecione um backup JSON gerado pelo PulseTrack.');
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      const result = validateBackupJson(text);
+      if (!result.backup) {
+        setPendingImport(null);
+        setImportError(importErrorMessage(result.error ?? 'invalid_json'));
         return;
       }
-      onImportBackup(
-        result.entries,
-        result.categories,
-        result.preferences,
-        result.experiments
-      );
+      // Nada é gravado aqui: o arquivo só fica em memória até a confirmação.
+      setPendingImport(result.backup);
+      setImportError('');
+    };
+    reader.onerror = () => {
+      setPendingImport(null);
+      setImportError('Não foi possível ler o arquivo selecionado. Nada foi alterado.');
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleDownloadCurrentBackup = () => {
+    const content = buildBackupJson(entries, categories, preferences, experiments);
+    const ok = downloadJson(
+      content,
+      `PulseTrack_Backup_Antes_da_Importacao_${toLocalIsoDate()}.json`
+    );
+    if (!ok) {
+      setImportError(
+        'Não foi possível gerar a cópia dos dados atuais neste navegador. A importação não será feita sem essa proteção.'
+      );
+      return;
+    }
+    setImportError('');
+    onFeedback('Cópia dos dados atuais baixada antes da importação.');
+  };
+
+  const plural = (count: number, singular: string, pluralForm: string) =>
+    `${count} ${count === 1 ? singular : pluralForm}`;
+
+  const formatBackupDate = (iso: string): string => {
+    if (!iso) return 'data não informada';
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? 'data não informada' : date.toLocaleString('pt-BR');
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return;
+
+    // Cópia de segurança do estado atual antes de qualquer substituição.
+    const currentBackup = buildBackupJson(entries, categories, preferences, experiments);
+    const downloaded = downloadJson(
+      currentBackup,
+      `PulseTrack_Backup_Antes_da_Importacao_${toLocalIsoDate()}.json`
+    );
+    if (!downloaded) {
+      setImportError(
+        'Não foi possível gerar a cópia dos dados atuais neste navegador. A importação não foi feita e nada foi alterado.'
+      );
+      return;
+    }
+
+    if (!onImportBackup(pendingImport)) {
+      setImportError(
+        'Não foi possível gravar o backup no armazenamento local. Nada foi alterado; os dados atuais continuam salvos.'
+      );
+      return;
+    }
+
+    setPendingImport(null);
+    setImportError('');
+    importTriggerRef.current?.focus();
   };
 
   return (
@@ -214,7 +333,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             Personalizar categorias e dados
           </h1>
           <p className="text-base mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Adapte categorias e comportamentos à sua realidade. Alterações são salvas automaticamente offline.
+            Adapte categorias e comportamentos à sua realidade. Alterações são salvas automaticamente neste navegador.
           </p>
         </div>
 
@@ -635,10 +754,80 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       >
         <div>
           <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Preferências de registro, cópia de segurança e dados offline
+            Preferências de registro, cópia de segurança e dados locais
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Todos os seus registros ficam apenas no seu navegador (localStorage). Você pode exportar ou restaurar um backup em JSON quando quiser.
+          </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Áreas de foco
+          </p>
+          <p className="text-xs mt-1 mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Elas aparecem em destaque no início do registro. Nenhum pilar é escondido.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {FOCUS_AREA_OPTIONS.map((option) => {
+              const active = preferences.focusAreas.includes(option.id);
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => toggleFocusArea(option.id)}
+                  aria-pressed={active}
+                  className="min-h-[44px] px-3 rounded-lg border text-xs font-medium cursor-pointer"
+                  style={{
+                    backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
+                    borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+                    color: active ? 'var(--color-primary-strong)' : 'var(--text-primary)',
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Profundidade inicial do novo registro
+          </p>
+          <p className="text-xs mt-1 mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Vale para registros novos; um registro em edição mantém a própria profundidade.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {RECORD_LEVEL_OPTIONS.map((option) => {
+              const active = preferences.defaultRecordLevel === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onChangePreferences({ defaultRecordLevel: option.id })}
+                  aria-pressed={active}
+                  className="min-h-[44px] px-4 rounded-lg border text-sm font-medium cursor-pointer"
+                  style={{
+                    backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
+                    borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+                    color: active ? 'var(--color-primary-strong)' : 'var(--text-primary)',
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border-hairline)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Lembretes automáticos
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+            Não disponíveis nesta versão. O PulseTrack não envia notificações e preferências
+            antigas de lembrete ficam inativas.
           </p>
         </div>
 
@@ -673,7 +862,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               color: 'var(--text-primary)',
             }}
           >
-            Rever apresentação inicial (4 telas)
+            Rever apresentação inicial (3 telas)
           </button>
 
           <button
@@ -739,9 +928,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             type="file"
             accept="application/json,.json"
             onChange={handleImportFile}
+            aria-label="Selecionar arquivo de backup JSON"
             className="hidden"
           />
           <button
+            ref={importTriggerRef}
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium inline-flex items-center gap-2 cursor-pointer"
@@ -763,6 +954,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           {entries.length > 0 && (
             !confirmClearEntries ? (
               <button
+                ref={clearTriggerRef}
                 type="button"
                 onClick={() => setConfirmClearEntries(true)}
                 className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium cursor-pointer"
@@ -784,8 +976,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   Confirmar limpeza total
                 </button>
                 <button
+                  ref={clearCancelRef}
                   type="button"
-                  onClick={() => setConfirmClearEntries(false)}
+                  onClick={() => {
+                    returnClearFocus.current = true;
+                    setConfirmClearEntries(false);
+                  }}
                   className="min-h-[48px] px-3 py-2.5 rounded-xl border text-sm cursor-pointer"
                   style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
                 >
@@ -795,6 +991,97 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             )
           )}
         </div>
+
+        {importError && (
+          <p
+            role="alert"
+            className="text-sm rounded-xl border p-3"
+            style={{
+              backgroundColor: 'var(--color-accent-soft)',
+              borderColor: 'var(--color-accent)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {importError}
+          </p>
+        )}
+
+        {pendingImport && (
+          <div
+            role="region"
+            aria-label="Confirmação de importação de backup"
+            className="rounded-xl border p-4 sm:p-5 space-y-3"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--color-accent)',
+              borderWidth: '2px',
+            }}
+          >
+            <h3
+              ref={importConfirmTitleRef}
+              tabIndex={-1}
+              className="text-base font-semibold"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Confirmar substituição dos dados
+            </h3>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Este backup contém {plural(pendingImport.entries.length, 'registro', 'registros')},{' '}
+              {plural(pendingImport.categories.length, 'categoria', 'categorias')} e{' '}
+              {plural(pendingImport.experiments.length, 'experimento', 'experimentos')}. A
+              importação substituirá os dados atualmente salvos neste navegador.
+            </p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Versão {pendingImport.version} do backup · Exportado em{' '}
+              {formatBackupDate(pendingImport.exportedAt)}
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Antes de substituir, baixaremos uma cópia dos dados atuais. Nenhuma alteração é
+              feita antes da confirmação.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadCurrentBackup}
+                className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm font-medium cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-strong)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Baixar cópia dos dados atuais
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                className="min-h-[48px] px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--color-accent)',
+                  color: 'var(--color-accent-ink)',
+                }}
+              >
+                Substituir dados pelo backup
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingImport(null);
+                  setImportError('');
+                  importTriggerRef.current?.focus();
+                }}
+                className="min-h-[48px] px-4 py-2.5 rounded-xl border text-sm cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-hairline)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Cancelar importação
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

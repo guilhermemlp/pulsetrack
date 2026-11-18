@@ -10,11 +10,13 @@ import {
   SAFETY_CONCERN_OPTIONS,
   SLEEP_QUALITY_OPTIONS,
   STATE_DURATION_OPTIONS,
+  isSampleEntry,
 } from '../data/defaults';
 import {
   AnalyticsSummary,
   AwarenessType,
   BehaviorMode,
+  EntryType,
   Experiment,
   PeriodFilter,
   PulseEntry,
@@ -22,7 +24,8 @@ import {
 } from '../types/pulsetrack';
 import {
   formatLongDate,
-  isEpisodeEntry,
+  hasImpulse,
+  hasRealizedBehavior,
   summarizeCoverage,
   toLocalIsoDate,
 } from './analytics';
@@ -34,6 +37,11 @@ const NOT_INFORMED = 'não informado';
 
 function num(value: number | null, suffix = ''): string {
   return value === null ? NOT_INFORMED : `${value}${suffix}`;
+}
+
+/** Abaixo de 5 respostas, mostra a contagem em vez de um percentual instável. */
+function rateText(count: number, base: number, percentage: number): string {
+  return base >= 5 ? `${percentage}%` : `${count} de ${base}`;
 }
 
 function pdfSafe(text: string): string {
@@ -61,7 +69,9 @@ function getMoodLabels(entry: PulseEntry): string {
 }
 
 function getBehaviorModeLabel(mode: BehaviorMode): string {
-  return mode === BehaviorMode.IMPULSO ? 'só impulso, não fiz' : 'fiz';
+  if (mode === BehaviorMode.IMPULSO) return 'só impulso, não fiz';
+  if (mode === BehaviorMode.FEITO) return 'fiz';
+  return 'modo não informado';
 }
 
 function getBehaviorsText(entry: PulseEntry): string {
@@ -208,16 +218,23 @@ export function exportEntriesToCsv(
     'Segurança (ideação / autolesão)',
     'Eventos do Dia',
     'Observações',
+    'Origem do Registro',
   ];
 
   const rows = entries.map((entry) => {
-    const isEp = isEpisodeEntry(entry);
+    const isEp = entry.entryType === EntryType.EPISODE;
     const eventsText = [entry.dayEvents.join(' | '), entry.dayEventsNote.trim()]
       .filter(Boolean)
       .join(' - ');
 
     return [
-      isEp ? 'Episódio comportamental' : 'Check-in diário (sem episódio)',
+      hasRealizedBehavior(entry)
+        ? 'Episódio com ação realizada'
+        : hasImpulse(entry)
+        ? 'Impulso contido'
+        : isEp
+        ? 'Registro sem classificação de ação'
+        : 'Check-in diário',
       formatLongDate(entry.date),
       entry.time,
       getMoodLabels(entry),
@@ -254,6 +271,7 @@ export function exportEntriesToCsv(
       getSafetyLabel(entry),
       eventsText,
       entry.notes,
+      isSampleEntry(entry) ? 'Exemplo ilustrativo' : 'Registro real',
     ]
       .map(escapeCsvCell)
       .join(';');
@@ -270,9 +288,27 @@ export function exportEntriesToCsv(
     '',
   ];
 
+  const sampleCount = entries.filter(isSampleEntry).length;
+  const sampleWarning =
+    sampleCount > 0
+      ? [
+          [
+            `Aviso: este arquivo inclui ${sampleCount} registro(s) de exemplo ilustrativo. A coluna "Origem do Registro" identifica cada linha.`,
+          ]
+            .map(escapeCsvCell)
+            .join(';'),
+          '',
+        ]
+      : [];
+
   const csvContent =
     '\uFEFF' +
-    [...coverageBlock, headers.map(escapeCsvCell).join(';'), ...rows].join('\r\n');
+    [
+      ...sampleWarning,
+      ...coverageBlock,
+      headers.map(escapeCsvCell).join(';'),
+      ...rows,
+    ].join('\r\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -373,13 +409,23 @@ export async function exportClinicalReportPdf(
   doc.text(pdfSafe(headerSub), margin + 4, y + 10);
   y += 24;
 
+  const sampleCount = entries.filter(isSampleEntry).length;
+  if (sampleCount > 0) {
+    addParagraph(
+      `AVISO: este relatório inclui ${sampleCount} registro(s) de exemplo ilustrativo. Não use os números como dados clínicos reais. Remova os exemplos no app antes de compartilhar um relatório do seu histórico.`,
+      9,
+      true,
+      [164, 78, 49]
+    );
+  }
+
   // 1. Resumo Longitudinal (Estado Emocional, Ativação/Sono e Comportamento)
   addSectionTitle('1. Visão Geral (Acompanhamento Contínuo + Episódios)');
   addParagraph(
-    `Total de registros: ${analytics.totalEntries} (${analytics.totalCheckinsOnly} check-ins sem compulsão + ${analytics.totalEpisodes} episódios comportamentais) em ${analytics.daysLogged} dia(s) acompanhados.`
+    `Total de registros: ${analytics.totalEntries} em ${analytics.daysLogged} dia(s) acompanhados — ${analytics.totalEpisodes} com ação realizada, ${analytics.totalImpulseOnlyEntries} só com impulso contido e ${analytics.totalEntriesWithoutRealizedBehavior} sem ação realizada.`
   );
   addParagraph(
-    `Dias acompanhados: ${analytics.daysLogged} de ${analytics.periodDays} — ${analytics.daysWithEpisodes} com episódios | ${analytics.daysWithoutEpisodes} sem episódios | ${analytics.daysWithoutLog} sem nenhum registro.`
+    `Dias acompanhados: ${analytics.daysLogged} de ${analytics.periodDays} — ${analytics.daysWithEpisodes} com ação realizada | ${analytics.daysWithoutEpisodes} sem ação realizada | ${analytics.daysWithoutLog} sem nenhum registro.`
   );
   addParagraph(
     `Médias do período (somente campos respondidos): Valência ${num(
@@ -411,7 +457,11 @@ export async function exportClinicalReportPdf(
     `- Sono: média de ${num(
       analytics.avgSleepHours,
       'h'
-    )}/noite. Redução da necessidade de sono relatada em ${analytics.reducedSleepNeedCount} registro(s) (${analytics.reducedSleepNeedRate}% dos que responderam). Noites com sono ruim ou <6h: ${analytics.poorSleepCount}.
+    )}/noite. Redução da necessidade de sono relatada em ${analytics.reducedSleepNeedCount} registro(s) (${rateText(
+      analytics.reducedSleepNeedCount,
+      analytics.reducedSleepNeedBase,
+      analytics.reducedSleepNeedRate
+    )} dos que responderam). Noites com sono ruim ou <6h: ${analytics.poorSleepCount}.
 - Dormiu pouco (<= 6h) e passou o dia sem sono nem fadiga: ${analytics.noFatigueAfterShortSleepCount} registro(s) — marcador mais específico de ativação de humor do que a energia alta isolada.`
   );
   if (analytics.menstrualPhaseStats.length > 0) {
@@ -422,7 +472,9 @@ export async function exportClinicalReportPdf(
             `${phase.label} (${phase.entries} reg.; valência ${num(
               phase.avgValence,
               '/10'
-            )}; energia ${num(phase.avgEnergy, '/10')}; ${phase.episodeRate}% com episódio)`
+            )}; energia ${num(phase.avgEnergy, '/10')}; ${
+              phase.entries >= 5 ? `${phase.episodeRate}% com episódio` : 'amostra insuficiente para percentual'
+            })`
         )
         .join(' | ')}.`
     );
@@ -430,7 +482,7 @@ export async function exportClinicalReportPdf(
   if (analytics.durationDistribution.length > 0) {
     addParagraph(
       `- Duração dos estados relatada: ${analytics.durationDistribution
-        .map((d) => `${d.label} (${d.count}x / ${d.percentage}%)`)
+        .map((d) => `${d.label} (${d.count}x)`)
         .join(' | ')}.`
     );
   }
@@ -438,7 +490,7 @@ export async function exportClinicalReportPdf(
   if (activeSignals.length > 0) {
     addParagraph(
       `- Sinais associados de ativação: ${activeSignals
-        .map((s) => `${s.label} (${s.count}x / ${s.percentage}%)`)
+        .map((s) => `${s.label} (${s.count}x)`)
         .join(' | ')}.`
     );
   } else {
@@ -449,19 +501,25 @@ export async function exportClinicalReportPdf(
   addSectionTitle('3. Análise de Ciclos (Dias Anteriores x Durante x Posteriores)');
   const cy = analytics.cycleAnalysis;
   if (cy.analyzedEpisodes === 0) {
-    addParagraph('Não houve episódios comportamentais neste período para comparar ciclos.');
+    addParagraph('Não houve episódios com ação realizada neste período para comparar ciclos.');
   } else {
     addParagraph(
       `- Antes dos episódios (D-2 a D-1, ${cy.before.sampleDays} dia(s) registrados): Energia média ${
         cy.before.avgEnergy !== null ? `${cy.before.avgEnergy}/10` : '-'
-      } | Sono médio ${cy.before.avgSleepHours !== null ? `${cy.before.avgSleepHours}h` : '-'} | Redução necessidade de sono: ${cy.before.reducedSleepNeedRate}%${
+      } | Sono médio ${cy.before.avgSleepHours !== null ? `${cy.before.avgSleepHours}h` : '-'} | Redução necessidade de sono: ${
+        cy.before.sampleDays >= 5 ? `${cy.before.reducedSleepNeedRate}%` : 'amostra insuficiente'
+      }${
         cy.before.topActivationSignal ? ` | Sinal predominante: ${cy.before.topActivationSignal}` : ''
       }.`
     );
     addParagraph(
       `- Durante os episódios (${cy.during.sampleDays} dia(s)): Energia média ${
         cy.during.avgEnergy !== null ? `${cy.during.avgEnergy}/10` : '-'
-      } | Sono médio ${cy.during.avgSleepHours !== null ? `${cy.during.avgSleepHours}h` : '-'} | Redução necessidade de sono: ${cy.during.reducedSleepNeedRate}% | Oscilação de humor: ${cy.during.moodSwingRate}%.`
+      } | Sono médio ${cy.during.avgSleepHours !== null ? `${cy.during.avgSleepHours}h` : '-'} | Redução necessidade de sono: ${
+        cy.during.sampleDays >= 5 ? `${cy.during.reducedSleepNeedRate}%` : 'amostra insuficiente'
+      } | Oscilação de humor: ${
+        cy.during.sampleDays >= 5 ? `${cy.during.moodSwingRate}%` : 'amostra insuficiente'
+      }.`
     );
     addParagraph(
       `- Após os episódios (D+1 a D+2, ${cy.after.sampleDays} dia(s) registrados): Energia média ${
@@ -479,7 +537,11 @@ export async function exportClinicalReportPdf(
   addSectionTitle('4. Indicadores para Investigação de Bipolaridade e Compulsões');
   const bi = analytics.bipolarIndicators;
   addParagraph(
-    `- Episódios em alta energia (Energia >= 8/10 combinada com redução da necessidade de sono): ${bi.highEnergyEpisodes} de ${analytics.totalEpisodes} (${bi.highEnergyPercent}%), vontade média ${num(
+    `- Episódios em alta energia (Energia >= 8/10 combinada com redução da necessidade de sono): ${bi.highEnergyEpisodes} de ${analytics.totalEpisodes} (${rateText(
+      bi.highEnergyEpisodes,
+      analytics.totalEpisodes,
+      bi.highEnergyPercent
+    )}), vontade média ${num(
       bi.highEnergyAvgUrge,
       '/10'
     )}.${
@@ -487,12 +549,24 @@ export async function exportClinicalReportPdf(
     } Energia alta isolada (hiperfoco, ansiedade, cafeína) não entra neste indicador.`
   );
   addParagraph(
-    `- Episódios de Alívio em Baixa Energia / Tristeza / Apatia: ${bi.lowEnergyReliefEpisodes} de ${analytics.totalEpisodes} (${bi.lowEnergyPercent}%), ${bi.lowEnergyAutomaticRate}% em modo automático ou misto.${
+    `- Episódios de Alívio em Baixa Energia / Tristeza / Apatia: ${bi.lowEnergyReliefEpisodes} de ${analytics.totalEpisodes} (${rateText(
+      bi.lowEnergyReliefEpisodes,
+      analytics.totalEpisodes,
+      bi.lowEnergyPercent
+    )}), ${
+      bi.lowEnergyReliefEpisodes >= 5
+        ? `${bi.lowEnergyAutomaticRate}%`
+        : 'amostra insuficiente para percentual de'
+    } modo automático ou misto.${
       bi.lowEnergyTopBehaviors.length > 0 ? ` Itens: ${bi.lowEnergyTopBehaviors.join(', ')}.` : ''
     }`
   );
   addParagraph(
-    `- Oscilações de humor relatadas: em ${bi.moodSwingEntries} registro(s) (${bi.moodSwingPercent}%). Nos episódios com oscilação prévia, vontade média ${num(
+    `- Oscilações de humor relatadas: em ${bi.moodSwingEntries} registro(s) (${rateText(
+      bi.moodSwingEntries,
+      analytics.totalEntries,
+      bi.moodSwingPercent
+    )}). Nos episódios com oscilação prévia, vontade média ${num(
       bi.moodSwingAvgUrge,
       '/10'
     )} e taxa de não interrupção ${bi.moodSwingNoResistRate}%. Direção e janela de tempo são registradas por episódio.`
@@ -512,7 +586,7 @@ export async function exportClinicalReportPdf(
           ? ` | Itens: ${cat.topItems.map((i) => `${i.label} (${i.count}x)`).join(', ')}`
           : '';
       addParagraph(
-        `- ${cat.categoryName}: ${cat.count} episódio(s) (${cat.percentage}%) | Vontade média ${num(
+        `- ${cat.categoryName}: ${cat.count} registro(s) com comportamento (${cat.realizedCount} com ação, ${cat.impulseCount} com impulso) | Vontade média ${num(
           cat.avgUrge,
           '/10'
         )} | Com prejuízo/sofrimento: ${cat.harmCount}${topStr}`
@@ -521,13 +595,17 @@ export async function exportClinicalReportPdf(
   }
   const bm = analytics.behaviorModes;
   addParagraph(
-    `Feito x impulso: ${bm.feitos} comportamento(s) efetivamente realizados e ${bm.impulsos} que ficaram só no impulso (${bm.registrosComImpulsoSemAcao} registro(s) sem nenhuma ação). Prejuízo ou sofrimento marcado em ${bm.comPrejuizo} ocorrência(s).`,
+    `Ação x impulso: ${bm.feitos} item(ns) efetivamente realizado(s) em ${bm.registrosComAcao} registro(s); ${bm.impulsos} impulso(s) em ${bm.registrosComImpulso} registro(s), dos quais ${bm.registrosComImpulsoSemAcao} sem nenhuma ação. Prejuízo ou sofrimento relatado em ${bm.comPrejuizo} item(ns) de ${bm.registrosComPrejuizo} registro(s) — nunca inferido automaticamente.${bm.registrosComClassificacaoDesconhecida > 0 ? ` ${bm.registrosComClassificacaoDesconhecida} registro(s) sem classificação de modo ficam fora dessas contagens.` : ''}`,
     9.5,
     true
   );
   const fi = analytics.functionalImpactSummary;
   addParagraph(
-    `Impacto funcional moderado/intenso: presente em ${fi.anySignificantImpactRate}% dos registros (Trabalho/Estudos: ${fi.workModerateOrHigh}x | Relacionamentos: ${fi.relationshipsModerateOrHigh}x | Rotina: ${fi.routineModerateOrHigh}x).`,
+    `Impacto funcional moderado/intenso: presente em ${
+      analytics.totalEntries >= 5
+        ? `${fi.anySignificantImpactRate}%`
+        : 'amostra insuficiente para percentual'
+    } dos registros (Trabalho/Estudos: ${fi.workModerateOrHigh}x | Relacionamentos: ${fi.relationshipsModerateOrHigh}x | Rotina: ${fi.routineModerateOrHigh}x).`,
     9.5,
     true
   );
@@ -573,8 +651,12 @@ export async function exportClinicalReportPdf(
   const recentEntries = entries.slice(0, 14);
   for (const entry of recentEntries) {
     ensureSpace(22);
-    const isEp = isEpisodeEntry(entry);
-    const typeLabel = isEp ? 'EPISÓDIO' : 'CHECK-IN DIÁRIO';
+    const isEp = entry.entryType === EntryType.EPISODE;
+    const typeLabel = hasRealizedBehavior(entry)
+      ? 'EPISÓDIO COM AÇÃO REALIZADA'
+      : hasImpulse(entry)
+      ? 'IMPULSO CONTIDO'
+      : 'CHECK-IN DIÁRIO';
     addParagraph(
       `[${typeLabel}] ${formatLongDate(entry.date)} ${entry.time} | Emocional: ${getMoodLabels(
         entry
@@ -594,7 +676,7 @@ export async function exportClinicalReportPdf(
     if (entry.activationSignals.length > 0) {
       addParagraph(`Sinais de ativação: ${getActivationLabels(entry.activationSignals)}`, 8.5);
     }
-    if (isEp) {
+    if (isEp || entry.behaviors.length > 0 || entry.behaviorOtherText.trim()) {
       const behaviorsStr = [getBehaviorsText(entry), entry.behaviorOtherText]
         .filter((v) => v && v !== NOT_INFORMED)
         .join(', ');
@@ -752,6 +834,14 @@ export async function exportExecutiveReportPdf(
       .join('  |  '),
     { size: 8.5, color: [73, 88, 102], gap: 2 }
   );
+
+  const sampleCount = entries.filter(isSampleEntry).length;
+  if (sampleCount > 0) {
+    write(
+      `AVISO: este relatório inclui ${sampleCount} registro(s) de exemplo ilustrativo. Não use os números como dados clínicos reais.`,
+      { size: 9, bold: true, color: [164, 78, 49], gap: 2 }
+    );
+  }
 
   section('1. Padrão dominante');
   write(report.dominantPattern.title, { size: 10.5, bold: true, gap: 0.6 });

@@ -53,10 +53,10 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
               className="text-lg font-semibold"
               style={{ color: 'var(--text-primary)' }}
             >
-              Linha do tempo conjunta: humor, energia, sono e episódios
+              Linha do tempo conjunta: humor, energia, sono, ações e impulsos
             </h3>
             <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-              Últimos {analytics.dailyTimeline.length} dias · acompanhe como sono e energia evoluem antes, durante e depois dos episódios
+              Últimos {analytics.dailyTimeline.length} dias · acompanhe como sono e energia evoluem antes, durante e depois das ações realizadas
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -84,7 +84,8 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
               />
               <span>Valência (prazer)</span>
             </span>
-            <span>Ep = Episódio comportamental</span>
+            <span>Ep = Episódio com ação realizada</span>
+            <span>Im = Impulso contido</span>
             <span>* = Redução da necessidade de sono</span>
           </div>
         </div>
@@ -102,7 +103,9 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                 const statusLabel = !isLogged
                   ? 'Sem registro'
                   : pt.episodeCount > 0
-                  ? `${pt.episodeCount} episódio(s)`
+                  ? `${pt.episodeCount} episódio(s) com ação`
+                  : pt.hasImpulse
+                  ? 'Impulso contido'
                   : 'Check-in calmo';
 
                 // Mesmo texto no tooltip e no rótulo acessível (o título sozinho não chega
@@ -134,6 +137,8 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                     <div className="h-5 flex items-center justify-center text-[10px] font-mono font-semibold tabular-nums">
                       {pt.episodeCount > 0 ? (
                         <span style={{ color: 'var(--color-accent)' }}>Ep{pt.episodeCount > 1 ? pt.episodeCount : ''}</span>
+                      ) : pt.hasImpulse ? (
+                        <span style={{ color: 'var(--color-secondary-ink)' }}>Im</span>
                       ) : pt.hasCheckinOnly ? (
                         <span style={{ color: 'var(--color-secondary-ink)' }}>Ok</span>
                       ) : (
@@ -211,7 +216,7 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-muted)' }}>
               <span>Barra esquerda: Energia (coral quando ≥ 7/10) · Barra direita: Horas de sono · Faixa inferior: cor do humor</span>
-              <span>Ok = dia acompanhado sem episódio · Ep = dia com episódio</span>
+              <span>Ok = dia acompanhado sem episódio nem impulso · Im = impulso contido · Ep = dia com ação realizada</span>
             </div>
           </div>
         </div>
@@ -232,13 +237,14 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
             Frequência por categoria comportamental
           </h3>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Distribuição dos episódios registrados e intensidade média da vontade
+            Distribuição dos registros com comportamento, separando ação realizada e
+            impulso contido. A vontade média é dos registros que a informaram.
           </p>
         </div>
 
         {analytics.categoryStats.length === 0 ? (
           <p className="text-sm py-8 text-center" style={{ color: 'var(--text-muted)' }}>
-            Nenhum episódio comportamental registrado neste período (apenas check-ins diários).
+            Nenhum comportamento registrado neste período — nem ação realizada nem impulso contido.
           </p>
         ) : (
           <div className="space-y-4">
@@ -254,7 +260,8 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                       className="font-mono tabular-nums text-xs shrink-0"
                       style={{ color: 'var(--text-secondary)' }}
                     >
-                      {cat.count} ep. ({cat.percentage}%) · vontade{' '}
+                      {cat.count} reg. · {cat.realizedCount} com ação · {cat.impulseCount} com
+                      impulso · vontade{' '}
                       {cat.avgUrge !== null ? `${cat.avgUrge}/10` : 'não informada'}
                       {cat.harmCount > 0 ? ` · prejuízo ${cat.harmCount}x` : ''}
                     </span>
@@ -302,8 +309,9 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
             Estado emocional × energia e vontade
           </h3>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Para cada estado emocional: quantos registros ocorreram, em quantos houve episódio, a energia
-            média e a intensidade da vontade (calculada apenas sobre os episódios)
+            Para cada estado emocional: quantos registros ocorreram, em quantos houve ação
+            realizada, a energia média e a intensidade da vontade (calculada apenas sobre
+            registros com ação)
           </p>
         </div>
 
@@ -330,7 +338,8 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
                       </span>
                     </div>
                     <span className="font-mono tabular-nums text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      {m.count}x · {m.episodeCount} ep. ({m.episodeRate}%) · energia{' '}
+                      {m.count}x · {m.episodeCount} ep.
+                      {m.count >= 5 ? ` (${m.episodeRate}%)` : ''} · energia{' '}
                       {m.avgEnergy !== null ? `${m.avgEnergy}/10` : 'não informada'} · valência{' '}
                       {m.avgValence !== null ? `${m.avgValence}/10` : 'não informada'} · vontade{' '}
                       {m.episodeCount > 0
@@ -374,7 +383,7 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
       >
         <div className="mb-5">
           <h3 id="chart-awareness-title" className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Consciência e interrupção nos episódios comportamentais
+            Consciência e interrupção nos registros com comportamento ou impulso
           </h3>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Proporção de ação consciente vs. automática e capacidade de pausa
@@ -425,13 +434,16 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
             </div>
             <div className="flex flex-wrap gap-4 mt-3 text-xs">
               <span style={{ color: 'var(--text-secondary)' }}>
-                Consciente: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.consciente}</strong> ({pct(analytics.awarenessBreakdown.consciente, totalAwareness)}%)
+                Consciente: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.consciente}</strong>
+                {totalAwareness >= 5 ? ` (${pct(analytics.awarenessBreakdown.consciente, totalAwareness)}%)` : ''}
               </span>
               <span style={{ color: 'var(--text-secondary)' }}>
-                Mistura: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.mistura}</strong> ({pct(analytics.awarenessBreakdown.mistura, totalAwareness)}%)
+                Mistura: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.mistura}</strong>
+                {totalAwareness >= 5 ? ` (${pct(analytics.awarenessBreakdown.mistura, totalAwareness)}%)` : ''}
               </span>
               <span style={{ color: 'var(--text-secondary)' }}>
-                Automático: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.automatico}</strong> ({pct(analytics.awarenessBreakdown.automatico, totalAwareness)}%)
+                Automático: <strong className="font-mono tabular-nums">{analytics.awarenessBreakdown.automatico}</strong>
+                {totalAwareness >= 5 ? ` (${pct(analytics.awarenessBreakdown.automatico, totalAwareness)}%)` : ''}
               </span>
             </div>
           </div>
@@ -479,13 +491,16 @@ export const DashboardCharts: React.FC<ChartsProps> = ({ analytics, theme }) => 
             </div>
             <div className="flex flex-wrap gap-4 mt-3 text-xs">
               <span style={{ color: 'var(--text-secondary)' }}>
-                Sim: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.sim}</strong> ({pct(analytics.resistanceBreakdown.sim, totalResist)}%)
+                Sim: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.sim}</strong>
+                {totalResist >= 5 ? ` (${pct(analytics.resistanceBreakdown.sim, totalResist)}%)` : ''}
               </span>
               <span style={{ color: 'var(--text-secondary)' }}>
-                Parcial: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.parcialmente}</strong> ({pct(analytics.resistanceBreakdown.parcialmente, totalResist)}%)
+                Parcial: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.parcialmente}</strong>
+                {totalResist >= 5 ? ` (${pct(analytics.resistanceBreakdown.parcialmente, totalResist)}%)` : ''}
               </span>
               <span style={{ color: 'var(--text-secondary)' }}>
-                Não: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.nao}</strong> ({pct(analytics.resistanceBreakdown.nao, totalResist)}%)
+                Não: <strong className="font-mono tabular-nums">{analytics.resistanceBreakdown.nao}</strong>
+                {totalResist >= 5 ? ` (${pct(analytics.resistanceBreakdown.nao, totalResist)}%)` : ''}
               </span>
             </div>
           </div>

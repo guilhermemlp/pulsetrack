@@ -24,7 +24,6 @@ import {
   CycleAnalysis,
   CyclePhaseMetrics,
   DailyPoint,
-  EntryType,
   FunctionalImpactLevel,
   InsightItem,
   MetricCoverage,
@@ -162,12 +161,53 @@ function getTopItemLabels(
     .map((item) => item.label);
 }
 
-export function isEpisodeEntry(entry: PulseEntry): boolean {
+/** Impulso: ao menos um item marcado como impulso ou uma intensidade de vontade relatada. */
+export function hasImpulse(entry: PulseEntry): boolean {
   return (
-    entry.entryType === EntryType.EPISODE ||
-    entry.behaviors.length > 0 ||
-    entry.behaviorOtherText.trim().length > 0
+    entry.behaviors.some((behavior) => behavior.mode === BehaviorMode.IMPULSO) ||
+    (entry.urgeIntensity !== null && entry.urgeIntensity > 0)
   );
+}
+
+/** Ação realizada: ao menos um item marcado explicitamente como "fiz". */
+export function hasRealizedBehavior(entry: PulseEntry): boolean {
+  return entry.behaviors.some((behavior) => behavior.mode === BehaviorMode.FEITO);
+}
+
+/** Prejuízo/sofrimento é sempre um relato explícito; nunca inferido da ação. */
+export function hasReportedHarm(entry: PulseEntry): boolean {
+  return entry.behaviors.some((behavior) => behavior.harm === true);
+}
+
+/**
+ * Registro sem classificação suficiente: modo legado/desconhecido, ou texto livre
+ * isolado (que não informa se houve ação ou apenas impulso).
+ */
+export function hasUnclassifiedBehavior(entry: PulseEntry): boolean {
+  if (entry.behaviors.some((behavior) => behavior.mode === BehaviorMode.DESCONHECIDO)) {
+    return true;
+  }
+  const hasClassifiedItem = entry.behaviors.some(
+    (behavior) => behavior.mode !== BehaviorMode.DESCONHECIDO
+  );
+  return entry.behaviorOtherText.trim().length > 0 && !hasClassifiedItem;
+}
+
+/** Registro que trouxe algum sinal do Pilar 3 (ação, impulso, texto ou vontade). */
+export function hasBehaviorRecord(entry: PulseEntry): boolean {
+  return (
+    entry.behaviors.length > 0 ||
+    entry.behaviorOtherText.trim().length > 0 ||
+    entry.urgeIntensity !== null
+  );
+}
+
+/**
+ * Episódio comportamental = registro com ao menos uma ação efetivamente realizada.
+ * Impulso contido continua sendo dado relevante, mas não é episódio realizado.
+ */
+export function isEpisodeEntry(entry: PulseEntry): boolean {
+  return hasRealizedBehavior(entry);
 }
 
 interface DayBucket {
@@ -393,7 +433,7 @@ export function summarizeCoverage(
 }
 
 /**
- * Motor analítico longitudinal offline do PulseTrack.
+ * Motor analítico longitudinal local do PulseTrack.
  */
 export function computeAnalytics(
   allEntries: PulseEntry[],
@@ -405,15 +445,20 @@ export function computeAnalytics(
   const periodDays = getPeriodDays(period, entries);
   const totalEntries = entries.length;
 
-  const episodes = entries.filter(isEpisodeEntry);
-  const checkinsOnly = entries.filter((e) => !isEpisodeEntry(e));
+  const episodes = entries.filter(hasRealizedBehavior);
+  const entriesWithoutRealizedBehavior = entries.filter((e) => !hasRealizedBehavior(e));
+  const behaviorRecords = entries.filter(hasBehaviorRecord);
 
   const totalEpisodes = episodes.length;
-  const totalCheckinsOnly = checkinsOnly.length;
+  const totalEntriesWithoutRealizedBehavior = entriesWithoutRealizedBehavior.length;
+  const totalImpulseOnlyEntries = entries.filter(
+    (entry) => !hasRealizedBehavior(entry) && hasImpulse(entry)
+  ).length;
+  const totalUnclassifiedBehaviorEntries = entries.filter(hasUnclassifiedBehavior).length;
 
   const daysLogged = new Set(entries.map((e) => e.date)).size;
   const daysWithEpisodes = new Set(episodes.map((e) => e.date)).size;
-  // Dias acompanhados sem episódio — não confundir com dias em que nada foi registrado.
+  // Dias acompanhados sem ação realizada — não confundir com dias sem nenhum registro.
   const daysWithoutEpisodes = Math.max(0, daysLogged - daysWithEpisodes);
   const daysWithoutLog = Math.max(0, periodDays - daysLogged);
 
@@ -513,8 +558,9 @@ export function computeAnalytics(
     ).length,
   };
 
-  // Consciência e resistência (calculados prioritariamente sobre episódios comportamentais)
-  const behaviorBase = episodes.length > 0 ? episodes : entries;
+  // Consciência e resistência valem para qualquer registro com sinal do Pilar 3,
+  // inclusive impulso contido — não apenas para ações realizadas.
+  const behaviorBase = behaviorRecords;
   const awarenessBreakdown = {
     consciente: behaviorBase.filter((e) => e.awareness === AwarenessType.CONSCIENTE).length,
     automatico: behaviorBase.filter((e) => e.awareness === AwarenessType.AUTOMATICO).length,
@@ -534,11 +580,13 @@ export function computeAnalytics(
   const behaviorModes = {
     feitos: allBehaviors.filter((b) => b.mode === BehaviorMode.FEITO).length,
     impulsos: allBehaviors.filter((b) => b.mode === BehaviorMode.IMPULSO).length,
-    comPrejuizo: allBehaviors.filter((b) => b.harm).length,
+    comPrejuizo: allBehaviors.filter((b) => b.harm === true).length,
+    registrosComAcao: episodes.length,
+    registrosComImpulso: entries.filter(hasImpulse).length,
+    registrosComPrejuizo: entries.filter(hasReportedHarm).length,
+    registrosComClassificacaoDesconhecida: totalUnclassifiedBehaviorEntries,
     registrosComImpulsoSemAcao: entries.filter(
-      (e) =>
-        e.behaviors.length > 0 &&
-        e.behaviors.every((b) => b.mode === BehaviorMode.IMPULSO)
+      (entry) => !hasRealizedBehavior(entry) && hasImpulse(entry)
     ).length,
   };
 
@@ -593,6 +641,8 @@ export function computeAnalytics(
       categoryName: string;
       color: string;
       entryIds: Set<string>;
+      realizedEntryIds: Set<string>;
+      impulseEntryIds: Set<string>;
       urgeSum: number;
       urgeCount: number;
       harmEntryIds: Set<string>;
@@ -600,7 +650,7 @@ export function computeAnalytics(
     }
   >();
 
-  for (const entry of episodes) {
+  for (const entry of behaviorRecords) {
     const seenCatsInEntry = new Set<string>();
     for (const b of entry.behaviors) {
       if (!catAgg.has(b.categoryId)) {
@@ -609,6 +659,8 @@ export function computeAnalytics(
           categoryName: b.categoryName,
           color: catColorMap.get(b.categoryId) ?? '#3B6F8F',
           entryIds: new Set(),
+          realizedEntryIds: new Set(),
+          impulseEntryIds: new Set(),
           urgeSum: 0,
           urgeCount: 0,
           harmEntryIds: new Set(),
@@ -616,6 +668,8 @@ export function computeAnalytics(
         });
       }
       const bucket = catAgg.get(b.categoryId)!;
+      if (b.mode === BehaviorMode.FEITO) bucket.realizedEntryIds.add(entry.id);
+      if (b.mode === BehaviorMode.IMPULSO) bucket.impulseEntryIds.add(entry.id);
       if (b.harm) bucket.harmEntryIds.add(entry.id);
       if (!seenCatsInEntry.has(b.categoryId)) {
         bucket.entryIds.add(entry.id);
@@ -648,7 +702,12 @@ export function computeAnalytics(
         categoryName: bucket.categoryName,
         color: bucket.color,
         count,
-        percentage: totalEpisodes > 0 ? Math.round((count / totalEpisodes) * 100) : 0,
+        realizedCount: bucket.realizedEntryIds.size,
+        impulseCount: bucket.impulseEntryIds.size,
+        percentage:
+          behaviorRecords.length > 0
+            ? Math.round((count / behaviorRecords.length) * 100)
+            : 0,
         avgUrge:
           bucket.urgeCount > 0
             ? Number((bucket.urgeSum / bucket.urgeCount).toFixed(1))
@@ -657,14 +716,20 @@ export function computeAnalytics(
         topItems,
       };
     })
-    .sort((a, b) => b.count - a.count);
+    .sort(
+      (a, b) =>
+        b.realizedCount - a.realizedCount ||
+        b.impulseCount - a.impulseCount ||
+        b.count - a.count
+    );
 
   // Relação Humor x Energia x Vontade (inclui todos os dias registrados)
   const moodStats: MoodBehaviorStat[] = MOOD_DEFINITIONS.map((moodDef) => {
     const matching = entries.filter((e) => e.moods.includes(moodDef.id));
     const count = matching.length;
-    // A vontade só existe em episódios: incluir check-ins (urge 0) diluiria a média.
-    const moodEpisodes = matching.filter(isEpisodeEntry);
+    // A vontade é lida apenas entre registros com ação realizada; impulsos contidos
+    // continuam tendo seus próprios indicadores.
+    const moodEpisodes = matching.filter(hasRealizedBehavior);
     const episodeCount = moodEpisodes.length;
     return {
       moodId: moodDef.id,
@@ -692,7 +757,8 @@ export function computeAnalytics(
     d.setDate(d.getDate() - i);
     const iso = toLocalIsoDate(d);
     const dayEntries = entries.filter((e) => e.date === iso);
-    const dayEpisodes = dayEntries.filter(isEpisodeEntry);
+    const dayEpisodes = dayEntries.filter(hasRealizedBehavior);
+    const dayHasImpulse = dayEntries.some(hasImpulse);
 
     const primaryMoodId = dayEntries[0]?.moods[0] ?? null;
     const primaryMoodDef = primaryMoodId
@@ -704,7 +770,8 @@ export function computeAnalytics(
       shortLabel: formatShortDate(iso),
       totalEntries: dayEntries.length,
       episodeCount: dayEpisodes.length,
-      hasCheckinOnly: dayEntries.length > 0 && dayEpisodes.length === 0,
+      hasImpulse: dayHasImpulse,
+      hasCheckinOnly: dayEntries.length > 0 && dayEpisodes.length === 0 && !dayHasImpulse,
       avgEnergy: averageOrNull(reported(dayEntries.map((e) => e.energyLevel))),
       avgValence: averageOrNull(reported(dayEntries.map((e) => e.valence))),
       avgSleepHours: averageOrNull(reported(dayEntries.map((e) => e.sleep?.hours))),
@@ -1330,9 +1397,9 @@ export function computeAnalytics(
         id: 'ins_behavior_mode',
         title: 'Impulsos segurados x comportamentos efetivados',
         category: 'compulsao',
-        summary: `${behaviorModes.feitos} comportamento(s) aconteceram e ${behaviorModes.impulsos} ficaram só no impulso.`,
-        detail: `Em ${behaviorModes.registrosComImpulsoSemAcao} registro(s) nada foi levado adiante. Prejuízo ou sofrimento foi marcado em ${behaviorModes.comPrejuizo} ocorrência(s). Contar apenas as ações evita inflar a frequência de compulsões com vontades que foram contidas.`,
-        metricLabel: `${behaviorModes.impulsos} impulso(s) contido(s)`,
+        summary: `${behaviorModes.feitos} comportamento(s) foram realizados e ${behaviorModes.impulsos} impulso(s) foram registrados.`,
+        detail: `Em ${behaviorModes.registrosComImpulsoSemAcao} registro(s) o impulso não virou ação. Prejuízo ou sofrimento foi relatado em ${behaviorModes.comPrejuizo} item(ns). Contar ação e impulso separadamente evita inflar a frequência de compulsões com vontades que foram contidas.`,
+        metricLabel: `${behaviorModes.impulsos} impulso(s) registrado(s)`,
         basis: `Base: ${behaviorModes.feitos + behaviorModes.impulsos} item(ns) registrado(s) no período, em ${entries.filter((e) => e.behaviors.length > 0).length} registro(s) com comportamento.`,
       });
     }
@@ -1369,12 +1436,12 @@ export function computeAnalytics(
       title: evolution.status === 'insuficiente' ? 'Acompanhamento contínuo' : evolution.label,
       category: 'evolucao',
       summary: evolution.description,
-      detail: `Base: ${daysLogged} dia(s) acompanhados no recorte (${totalCheckinsOnly} check-in(s) sem compulsão e ${totalEpisodes} episódio(s)); ${daysWithoutEpisodes} dia(s) acompanhados sem episódio e ${daysWithoutLog} sem registro.`,
+      detail: `Base: ${daysLogged} dia(s) acompanhados no recorte (${totalEpisodes} com ação realizada, ${totalImpulseOnlyEntries} só com impulso contido e ${totalUnclassifiedBehaviorEntries} sem classificação de comportamento); ${daysWithoutEpisodes} dia(s) sem ação realizada e ${daysWithoutLog} sem registro.`,
       metricLabel:
         evolution.status === 'insuficiente'
-          ? `${currCount} episódio(s) no período`
-          : `${prevCount} → ${currCount} episódios`,
-      basis: `Base: ${totalEntries} registro(s) — ${totalEpisodes} episódio(s) e ${totalCheckinsOnly} check-in(s) — em ${daysLogged} dia(s) acompanhados de ${periodDays}.`,
+          ? `${currCount} episódio(s) com ação no período`
+          : `${prevCount} → ${currCount} episódios com ação`,
+      basis: `Base: ${totalEntries} registro(s) — ${totalEpisodes} com ação realizada, ${totalEntriesWithoutRealizedBehavior} sem ação — em ${daysLogged} dia(s) acompanhados de ${periodDays}.`,
     });
   }
 
@@ -1406,15 +1473,18 @@ export function computeAnalytics(
       base: totalEntries,
     },
     behavior: {
-      answered: episodes.filter(
+      answered: behaviorRecords.filter(
         (e) => e.behaviors.length > 0 || e.behaviorOtherText.trim().length > 0
       ).length,
-      base: totalEpisodes,
+      base: behaviorRecords.length,
     },
-    urge: { answered: urgeValues.length, base: totalEpisodes },
+    urge: {
+      answered: behaviorRecords.filter((e) => typeof e.urgeIntensity === 'number').length,
+      base: behaviorRecords.length,
+    },
     awareness: {
-      answered: episodes.filter((e) => e.awareness !== null).length,
-      base: totalEpisodes,
+      answered: behaviorRecords.filter((e) => e.awareness !== null).length,
+      base: behaviorRecords.length,
     },
     functionalImpact: {
       answered: entries.filter(hasAnyImpact).length,
@@ -1439,7 +1509,9 @@ export function computeAnalytics(
     coverage,
     totalEntries,
     totalEpisodes,
-    totalCheckinsOnly,
+    totalEntriesWithoutRealizedBehavior,
+    totalImpulseOnlyEntries,
+    totalUnclassifiedBehaviorEntries,
     periodDays,
     daysLogged,
     daysWithEpisodes,
@@ -1453,6 +1525,7 @@ export function computeAnalytics(
     sleepReportedCount,
     valenceReportedCount: valenceValues.length,
     reducedSleepNeedCount,
+    reducedSleepNeedBase,
     reducedSleepNeedRate,
     poorSleepCount,
     noFatigueAfterShortSleepCount,

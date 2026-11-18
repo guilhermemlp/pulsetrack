@@ -80,7 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Seu painel longitudinal está pronto
           </h1>
           <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Registre diariamente como estão seu humor, energia e sono — mesmo em dias sem episódios — para enxergar ciclos completos ao longo das semanas.
+            Registre diariamente como estão seu humor, energia e sono — mesmo em dias sem ação realizada — para enxergar ciclos completos ao longo das semanas.
           </p>
         </div>
 
@@ -207,13 +207,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }}
             >
               <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Acompanhamento diário
+                Registros no período
               </p>
               <p className="text-3xl font-bold font-mono tabular-nums mt-2" style={{ color: 'var(--text-primary)' }}>
-                {analytics.totalCheckinsOnly} + {analytics.totalEpisodes}
+                {analytics.totalEntries}
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                {analytics.totalCheckinsOnly} check-ins calmos · {analytics.totalEpisodes} episódios
+                {analytics.totalEpisodes} com ação realizada · {analytics.totalImpulseOnlyEntries} só com impulso ·{' '}
+                {Math.max(
+                  0,
+                  analytics.totalEntries -
+                    analytics.totalEpisodes -
+                    analytics.totalImpulseOnlyEntries
+                )}{' '}
+                sem ação/impulso classificado
               </p>
             </div>
 
@@ -235,7 +242,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {analytics.avgSleepHours === null
                   ? 'Nenhum registro informou as horas de sono'
                   : `${analytics.sleepReportedCount} registro(s) informaram o sono`}
-                {' · '}Redução da necessidade de sono em {analytics.reducedSleepNeedCount} registro(s) ({analytics.reducedSleepNeedRate}%)
+                {' · '}Redução da necessidade de sono em {analytics.reducedSleepNeedCount} de{' '}
+                {analytics.reducedSleepNeedBase} registro(s) que responderam
+                {analytics.reducedSleepNeedBase >= 5 ? ` (${analytics.reducedSleepNeedRate}%)` : ''}
               </p>
             </div>
 
@@ -274,7 +283,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }}
             >
               <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Vontade média nos episódios
+                Vontade média registrada
               </p>
               <p className="text-3xl font-bold font-mono tabular-nums mt-2" style={{ color: 'var(--color-accent)' }}>
                 {analytics.avgUrgeIntensity !== null ? (
@@ -289,11 +298,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 )}
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                {analytics.daysWithoutEpisodes} dia(s) acompanhados sem episódio ·{' '}
+                {analytics.daysWithoutEpisodes} dia(s) acompanhados sem ação realizada ·{' '}
                 {analytics.daysWithoutLog} sem registro (recorte de {analytics.periodDays}d)
               </p>
             </div>
           </div>
+
+          {(analytics.behaviorModes.feitos > 0 ||
+            analytics.behaviorModes.impulsos > 0 ||
+            analytics.behaviorModes.registrosComImpulso > 0 ||
+            analytics.behaviorModes.registrosComClassificacaoDesconhecida > 0) && (
+            <section aria-labelledby="behavior-outcomes-title" className="space-y-3">
+              <div>
+                <h2
+                  id="behavior-outcomes-title"
+                  className="text-lg font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Ação, impulso e prejuízo
+                </h2>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Ação realizada, impulso contido e prejuízo relatado são contados
+                  separadamente. Impulso não vira episódio automaticamente.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  {
+                    label: 'Comportamentos realizados',
+                    value: analytics.behaviorModes.feitos,
+                    detail: `${analytics.behaviorModes.registrosComAcao} registro(s) com ação`,
+                    color: 'var(--color-primary-strong)',
+                  },
+                  {
+                    label: 'Impulsos contidos',
+                    value: analytics.behaviorModes.impulsos,
+                    detail: `${analytics.behaviorModes.registrosComImpulsoSemAcao} registro(s) só com impulso`,
+                    color: 'var(--color-secondary-ink)',
+                  },
+                  {
+                    label: 'Prejuízo relatado',
+                    value: analytics.behaviorModes.comPrejuizo,
+                    detail: `${analytics.behaviorModes.registrosComPrejuizo} registro(s) com relato explícito`,
+                    color: 'var(--color-accent)',
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-2xl border p-4"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-hairline)',
+                    }}
+                  >
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      {item.label}
+                    </p>
+                    <p
+                      className="text-2xl font-bold font-mono tabular-nums mt-1"
+                      style={{ color: item.color }}
+                    >
+                      {item.value}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                      {item.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {analytics.behaviorModes.registrosComClassificacaoDesconhecida > 0 && (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {analytics.behaviorModes.registrosComClassificacaoDesconhecida} registro(s)
+                  antigo(s) não informam se houve ação ou impulso — eles não entram nas
+                  contagens de ação nem de impulso.
+                </p>
+              )}
+            </section>
+          )}
 
           {/* Análise Longitudinal de Ciclos: Antes × Durante × Depois */}
           <section aria-labelledby="cycle-analysis-title" className="space-y-4">
@@ -315,7 +396,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   color: 'var(--text-secondary)',
                 }}
               >
-                Sem episódios comportamentais neste período — o acompanhamento diário mostra estabilidade contínua.
+                Sem episódios com ação realizada neste período — impulsos contidos e o acompanhamento diário continuam visíveis nos indicadores acima.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -375,7 +456,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <div className="flex justify-between gap-2">
                           <dt>Redução necessidade de sono:</dt>
                           <dd className="font-mono tabular-nums font-semibold" style={{ color: 'var(--text-primary)' }}>
-                            {phase.data.reducedSleepNeedRate}%
+                            {phase.data.sampleDays >= 5
+                              ? `${phase.data.reducedSleepNeedRate}%`
+                              : 'amostra insuficiente'}
                           </dd>
                         </div>
                         {phase.data.dominantMood && (
@@ -455,7 +538,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Alta energia / Euforia
                 </p>
                 <p className="text-2xl font-bold font-mono tabular-nums" style={{ color: 'var(--color-accent)' }}>
-                  {bi.highEnergyEpisodes} ep. ({bi.highEnergyPercent}%)
+                  {bi.highEnergyEpisodes} ep. com ação
+                  {analytics.totalEpisodes >= 5 ? ` (${bi.highEnergyPercent}%)` : ''}
                 </p>
                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                   Energia ≥ 7 ou Eufórico/Agitado. Vontade média:{' '}
@@ -480,11 +564,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Baixa energia / Tristeza / Vazio
                 </p>
                 <p className="text-2xl font-bold font-mono tabular-nums" style={{ color: 'var(--color-primary-strong)' }}>
-                  {bi.lowEnergyReliefEpisodes} ep. ({bi.lowEnergyPercent}%)
+                  {bi.lowEnergyReliefEpisodes} ep. com ação
+                  {analytics.totalEpisodes >= 5 ? ` (${bi.lowEnergyPercent}%)` : ''}
                 </p>
                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                   Energia ≤ 3 ou Triste/Apatia.{' '}
-                  <strong className="font-mono tabular-nums">{bi.lowEnergyAutomaticRate}%</strong> em modo automático/misto.
+                  {bi.lowEnergyReliefEpisodes >= 5 ? (
+                    <>
+                      <strong className="font-mono tabular-nums">{bi.lowEnergyAutomaticRate}%</strong> em
+                      modo automático/misto.
+                    </>
+                  ) : (
+                    'Amostra insuficiente para o modo automático/misto.'
+                  )}
                 </p>
                 {bi.lowEnergyTopBehaviors.length > 0 && (
                   <p className="text-xs pt-1" style={{ color: 'var(--text-secondary)' }}>
@@ -505,12 +597,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Oscilação prévia de humor
                 </p>
                 <p className="text-2xl font-bold font-mono tabular-nums" style={{ color: 'var(--color-secondary-ink)' }}>
-                  {bi.moodSwingEntries} reg. ({bi.moodSwingPercent}%)
+                  {bi.moodSwingEntries} reg.
+                  {analytics.totalEntries >= 5 ? ` (${bi.moodSwingPercent}%)` : ''}
                 </p>
                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                   Nos episódios com oscilação: vontade média{' '}
-                  <strong className="font-mono tabular-nums">{bi.moodSwingAvgUrge}/10</strong> · Não interrompido em{' '}
-                  <strong className="font-mono tabular-nums">{bi.moodSwingNoResistRate}%</strong>.
+                  <strong className="font-mono tabular-nums">{bi.moodSwingAvgUrge}/10</strong> ·{' '}
+                  {bi.moodSwingEntries >= 5 ? (
+                    <>
+                      Não interrompido em{' '}
+                      <strong className="font-mono tabular-nums">{bi.moodSwingNoResistRate}%</strong>.
+                    </>
+                  ) : (
+                    'Amostra insuficiente para a taxa de não interrupção.'
+                  )}
                 </p>
               </div>
             </div>
@@ -530,7 +630,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <li key={d.id} className="flex justify-between gap-2" style={{ color: 'var(--text-secondary)' }}>
                     <span>{d.label}</span>
                     <span className="font-mono tabular-nums font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {d.count}x ({d.percentage}%)
+                      {d.count}x
                     </span>
                   </li>
                 ))}
@@ -549,7 +649,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <li key={s.id} className="flex justify-between gap-2" style={{ color: 'var(--text-secondary)' }}>
                     <span>{s.label}</span>
                     <span className="font-mono tabular-nums font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {s.count}x ({s.percentage}%)
+                      {s.count}x
                     </span>
                   </li>
                 ))}
@@ -584,7 +684,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </li>
               </ul>
               <p className="text-xs pt-2 border-t" style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-muted)' }}>
-                Impacto significativo presente em {fi.anySignificantImpactRate}% dos registros no período.
+                {analytics.totalEntries >= 5
+                  ? `Impacto significativo presente em ${fi.anySignificantImpactRate}% dos registros no período.`
+                  : 'Amostra insuficiente para calcular o percentual de impacto no período.'}
               </p>
             </section>
           </div>

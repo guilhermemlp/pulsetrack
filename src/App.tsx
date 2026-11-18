@@ -5,6 +5,7 @@ import {
   ClipboardPlus,
   Clock,
   FileText,
+  FlaskConical,
   Lightbulb,
   SlidersHorizontal,
   X,
@@ -16,7 +17,12 @@ import { HistoryView } from './components/HistoryView';
 import { InsightsView } from './components/InsightsView';
 import { Onboarding } from './components/Onboarding';
 import { ReportsView } from './components/ReportsView';
-import { createDefaultCategories, createSampleEntries } from './data/defaults';
+import { SampleDataConfirm } from './components/SampleDataConfirm';
+import {
+  createDefaultCategories,
+  createSampleEntries,
+  isSampleEntry,
+} from './data/defaults';
 import { applyPackages, CATEGORY_PACKAGES } from './data/packages';
 import {
   AppTab,
@@ -34,7 +40,11 @@ import {
   UserPreferences,
 } from './types/pulsetrack';
 import { computeAnalytics, filterEntriesByPeriod, toLocalIsoDate } from './utils/analytics';
+import { downloadJson } from './utils/download';
 import {
+  applyBackup,
+  BackupPayload,
+  buildBackupJson,
   clearFormDraft,
   FormDraft,
   loadCategories,
@@ -75,6 +85,12 @@ export default function App() {
   const [reopenLevel, setReopenLevel] = useState<RecordLevel | null>(null);
   const [focusMode, setFocusMode] = useState<boolean>(() => preferences.focusModeDefault);
   const [feedbackMessage, setFeedbackMessage] = useState<string>('');
+  /** Confirmação pendente para substituir registros reais pelos exemplos. */
+  const [sampleRequest, setSampleRequest] = useState<{
+    entriesCount: number;
+    sampleCount: number;
+  } | null>(null);
+  const [sampleError, setSampleError] = useState('');
   /** Rascunho em andamento (para o card "Continuar registro" no Painel e no Histórico). */
   const [draft, setDraft] = useState<FormDraft | null>(() => loadFormDraft());
 
@@ -125,9 +141,11 @@ export default function App() {
 
   const handleApplyPackages = (ids: PackageId[]) => {
     setCategories((prev) => applyPackages(prev, ids));
-    patchPreferences({
-      packageIds: Array.from(new Set([...preferences.packageIds, ...ids])),
-    });
+    // Usa o estado anterior: dois cliques seguidos não podem perder o primeiro pacote.
+    setPreferences((prev) => ({
+      ...prev,
+      packageIds: Array.from(new Set([...prev.packageIds, ...ids])),
+    }));
     showFeedback(
       ids.length === 1
         ? 'Pacote adicionado ao seu catálogo. Nada do que já existia foi removido.'
@@ -163,6 +181,7 @@ export default function App() {
 
   const handleRestartOnboarding = () => {
     persistOnboarding({
+      version: 2,
       status: 'in_progress',
       step: 0,
       skippedSteps: [],
@@ -220,21 +239,40 @@ export default function App() {
     showFeedback('Rascunho descartado. Nenhum registro foi alterado.');
   };
 
-  const handleSaveEntry = (entry: PulseEntry, isEdit: boolean) => {
+  /**
+   * Grava de forma síncrona antes de limpar o rascunho: se o armazenamento local
+   * recusar (quota, modo privado), a pessoa não perde o que respondeu.
+   */
+  const persistEntriesOrWarn = (next: PulseEntry[]): boolean => {
+    if (!saveEntries(next)) {
+      showFeedback(
+        'Não foi possível gravar no armazenamento local. Suas respostas continuam na tela — libere espaço e tente novamente.'
+      );
+      return false;
+    }
+    setEntries(next);
+    return true;
+  };
+
+  const handleSaveEntry = (entry: PulseEntry, isEdit: boolean): boolean => {
     setReopenLevel(null);
+    const next = isEdit
+      ? entries.map((item) => (item.id === entry.id ? entry : item))
+      : [entry, ...entries];
+    if (!persistEntriesOrWarn(next)) return false;
+
     if (isEdit) {
-      setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
       setEditingEntry(null);
       showFeedback('Registro atualizado e salvo localmente.');
       setActiveTab('historico');
     } else {
-      setEntries((prev) => [entry, ...prev]);
       showFeedback(
         entry.entryType === EntryType.DAILY_CHECKIN
           ? 'Check-in diário salvo com segurança.'
-          : 'Episódio registrado e salvo localmente.'
+          : 'Registro de comportamento salvo localmente.'
       );
     }
+    return true;
   };
 
   const handleEditEntry = (entry: PulseEntry) => {
@@ -252,17 +290,18 @@ export default function App() {
     entry: PulseEntry,
     isEdit: boolean,
     nextLevel: RecordLevel
-  ) => {
-    if (isEdit) {
-      setEntries((prev) => prev.map((item) => (item.id === entry.id ? entry : item)));
-    } else {
-      setEntries((prev) => [entry, ...prev]);
-    }
+  ): boolean => {
+    const next = isEdit
+      ? entries.map((item) => (item.id === entry.id ? entry : item))
+      : [entry, ...entries];
+    if (!persistEntriesOrWarn(next)) return false;
+
     setEditingEntry(entry);
     setReopenLevel(nextLevel);
     setActiveTab('registrar');
     showFeedback('Registro salvo. Complete o que fizer sentido — o que já foi dito está guardado.');
     window.scrollTo({ top: 0, behavior: preferences.reduceMotion ? 'auto' : 'smooth' });
+    return true;
   };
 
   /** Cria um subitem direto do formulário e devolve o item persistido. */
@@ -323,14 +362,84 @@ export default function App() {
     showFeedback('Registro removido do histórico.');
   };
 
-  const handleLoadSampleData = () => {
+  /** Grava os exemplos de forma síncrona; devolve `false` sem alterar o estado em falha. */
+  const loadSampleEntries = (): boolean => {
     const sample = createSampleEntries();
-    setEntries(sample);
+    if (!persistEntriesOrWarn(sample)) return false;
     setPeriod('14');
-    showFeedback('Exemplo ilustrativo de 14 dias carregado. Você pode editar ou limpar quando quiser.');
+    showFeedback(
+      'Dados de exemplo carregados: 14 registros ilustrativos identificados no topo do app. Você pode removê-los sem apagar registros reais.'
+    );
     if (activeTab === 'registrar') {
       setActiveTab('painel');
     }
+    return true;
+  };
+
+  /**
+   * Com registros existentes, nunca substitui direto: abre confirmação com contagens.
+   * Sem registros, a ação explícita já é segura e carrega os exemplos imediatamente.
+   */
+  const handleRequestLoadSampleData = () => {
+    if (entries.length === 0) {
+      loadSampleEntries();
+      return;
+    }
+    setSampleError('');
+    setSampleRequest({
+      entriesCount: entries.length,
+      sampleCount: createSampleEntries().length,
+    });
+  };
+
+  const handleDownloadSampleBackup = () => {
+    const content = buildBackupJson(entries, categories, preferences, experiments);
+    const ok = downloadJson(
+      content,
+      `PulseTrack_Backup_Antes_dos_Exemplos_${toLocalIsoDate()}.json`
+    );
+    if (!ok) {
+      setSampleError(
+        'Não foi possível gerar a cópia dos dados atuais neste navegador. Nada foi alterado.'
+      );
+      return;
+    }
+    setSampleError('');
+    showFeedback('Cópia dos dados atuais baixada antes de carregar os exemplos.');
+  };
+
+  const handleConfirmLoadSampleData = () => {
+    const content = buildBackupJson(entries, categories, preferences, experiments);
+    const downloaded = downloadJson(
+      content,
+      `PulseTrack_Backup_Antes_dos_Exemplos_${toLocalIsoDate()}.json`
+    );
+    if (!downloaded) {
+      setSampleError(
+        'Não foi possível gerar a cópia dos dados atuais. Os exemplos não foram carregados e nada foi alterado.'
+      );
+      return;
+    }
+    if (!loadSampleEntries()) {
+      setSampleError(
+        'Não foi possível gravar os registros de exemplo. Seus dados atuais continuam salvos e nada foi alterado.'
+      );
+      return;
+    }
+    setSampleRequest(null);
+    setSampleError('');
+  };
+
+  /** Remove apenas os registros ilustrativos, preservando qualquer registro real. */
+  const handleRemoveSampleEntries = () => {
+    const next = entries.filter((entry) => !isSampleEntry(entry));
+    if (next.length === entries.length) return;
+    if (!persistEntriesOrWarn(next)) return;
+    if (editingEntry && isSampleEntry(editingEntry)) setEditingEntry(null);
+    const removed = entries.length - next.length;
+    showFeedback(
+      `${removed} registro(s) de exemplo removido(s). Seus registros reais foram mantidos.`
+    );
   };
 
   const handleClearAllEntries = () => {
@@ -343,19 +452,27 @@ export default function App() {
     showFeedback('Categorias e comportamentos padrão restaurados.');
   };
 
-  const handleImportBackup = (
-    importedEntries: PulseEntry[],
-    importedCategories: BehaviorCategory[],
-    importedPrefs?: UserPreferences,
-    importedExperiments?: Experiment[]
-  ) => {
-    setEntries(importedEntries);
-    setCategories(importedCategories);
-    if (importedExperiments) setExperiments(importedExperiments);
-    if (importedPrefs) {
-      setPreferences((prev) => ({ ...prev, ...importedPrefs }));
+  /**
+   * Aplica o backup somente depois da confirmação. A gravação é síncrona e atômica:
+   * se qualquer chave falhar, `applyBackup` restaura o conteúdo anterior e o estado
+   * do React não é alterado.
+   */
+  const handleImportBackup = (backup: BackupPayload): boolean => {
+    if (!applyBackup(backup)) {
+      showFeedback(
+        'Não foi possível gravar o backup. Nada foi alterado; os dados atuais continuam salvos.'
+      );
+      return false;
     }
-    showFeedback(`Backup restaurado com ${importedEntries.length} registro(s).`);
+
+    setEntries(backup.entries);
+    setCategories(backup.categories);
+    setExperiments(backup.experiments);
+    setPreferences(backup.preferences);
+    showFeedback(
+      `Backup importado: ${backup.entries.length} registro(s), ${backup.categories.length} categoria(s) e ${backup.experiments.length} experimento(s) substituíram os dados anteriores.`
+    );
+    return true;
   };
 
   const setTheme = (theme: ThemeMode) => {
@@ -377,6 +494,7 @@ export default function App() {
   };
 
   const isFocusLayout = focusMode && activeTab === 'registrar';
+  const sampleEntryCount = entries.filter(isSampleEntry).length;
 
   if (onboarding.status !== 'completed') {
     return (
@@ -392,7 +510,7 @@ export default function App() {
         onFinish={() => {
           setActiveTab('registrar');
           showFeedback(
-            'Tudo pronto. Você pode ajustar qualquer escolha depois em Categorias — nada aqui é diagnóstico.'
+            'Tudo pronto. Ajuste foco e profundidade em Categorias; tema e movimento ficam no topo do app.'
           );
         }}
       />
@@ -568,6 +686,49 @@ export default function App() {
         )}
       </div>
 
+      {/* Dados ilustrativos ficam identificados e podem ser removidos sem tocar nos reais. */}
+      {!isFocusLayout && sampleEntryCount > 0 && (
+        <div className="max-w-6xl w-full mx-auto px-4 sm:px-6">
+          <div
+            role="status"
+            className="mt-4 rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            style={{
+              backgroundColor: 'var(--color-primary-soft)',
+              borderColor: 'var(--color-primary)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <div className="flex items-start gap-2.5">
+              <FlaskConical
+                className="w-5 h-5 shrink-0 mt-0.5"
+                style={{ color: 'var(--color-primary-strong)' }}
+                aria-hidden="true"
+              />
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold">Dados de exemplo em uso</p>
+                <p className="text-xs sm:text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  {sampleEntryCount === entries.length
+                    ? `Todos os ${entries.length} registros são ilustrativos. Relatórios e métricas refletem apenas o exemplo.`
+                    : `${sampleEntryCount} de ${entries.length} registros são ilustrativos. Relatórios e métricas incluem esses exemplos.`}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveSampleEntries}
+              className="min-h-[48px] px-4 py-2 rounded-xl border text-sm font-medium shrink-0 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--color-primary)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              Remover dados de exemplo
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Área principal de conteúdo */}
       <main id="inicio" className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 md:pb-12">
         {activeTab === 'registrar' && (
@@ -597,6 +758,7 @@ export default function App() {
             showSexualCategory={preferences.showSexualCategory}
             trackCycle={preferences.trackCycle}
             defaultRecordLevel={preferences.defaultRecordLevel}
+            focusAreas={preferences.focusAreas}
             reduceMotion={preferences.reduceMotion}
             reopenLevel={reopenLevel}
             onCreateBehaviorItem={handleCreateBehaviorItem}
@@ -614,7 +776,7 @@ export default function App() {
             period={period}
             onChangePeriod={setPeriod}
             onNavigate={handleNavigate}
-            onLoadSampleData={handleLoadSampleData}
+            onLoadSampleData={handleRequestLoadSampleData}
             theme={preferences.theme}
             draft={draft}
             onContinueDraft={handleContinueDraft}
@@ -657,10 +819,11 @@ export default function App() {
             entries={entries}
             experiments={experiments}
             preferences={preferences}
+            onChangePreferences={patchPreferences}
             onUpdateCategories={setCategories}
             onResetDefaultCategories={handleResetDefaultCategories}
             onImportBackup={handleImportBackup}
-            onLoadSampleData={handleLoadSampleData}
+            onLoadSampleData={handleRequestLoadSampleData}
             onClearAllEntries={handleClearAllEntries}
             onToggleFocusModeDefault={() => {
               setPreferences((prev) => {
@@ -724,7 +887,7 @@ export default function App() {
           style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-muted)' }}
         >
           <div className="max-w-6xl mx-auto px-6 flex flex-wrap items-center justify-between gap-4">
-            <span>PulseTrack · Espaço seguro de auto-observação offline (dados salvos apenas no seu dispositivo).</span>
+            <span>PulseTrack · Espaço seguro de auto-observação (dados salvos apenas neste navegador).</span>
             <span>Ferramenta de apoio pessoal — não substitui avaliação médica ou psicológica.</span>
           </div>
         </footer>
@@ -768,6 +931,22 @@ export default function App() {
             })}
           </div>
         </nav>
+      )}
+
+      {sampleRequest && (
+        <SampleDataConfirm
+          entriesCount={sampleRequest.entriesCount}
+          sampleCount={sampleRequest.sampleCount}
+          categoriesCount={categories.length}
+          experimentsCount={experiments.length}
+          error={sampleError}
+          onDownloadBackup={handleDownloadSampleBackup}
+          onConfirm={handleConfirmLoadSampleData}
+          onCancel={() => {
+            setSampleRequest(null);
+            setSampleError('');
+          }}
+        />
       )}
     </div>
   );

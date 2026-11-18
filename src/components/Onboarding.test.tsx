@@ -58,22 +58,27 @@ describe('Onboarding', () => {
   it('retoma na tela salva', () => {
     renderOnboarding({ progress: { ...baseProgress, step: 2 } });
 
-    expect(screen.getByRole('heading', { name: 'Pacotes de categorias' })).toBeTruthy();
-    expect(screen.getByText('Etapa 3 de 4')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Ritmo e conforto' })).toBeTruthy();
+    expect(screen.getByText('Etapa 3 de 3')).toBeTruthy();
   });
 
-  it('salva a tela ao continuar', async () => {
+  it('salva a área de foco no clique, sem depender de continuar', async () => {
     const user = userEvent.setup();
     const { onChangePreferences, onSaveProgress } = renderOnboarding();
 
     await user.click(screen.getByRole('button', { name: /Humor e emoções/ }));
-    await user.click(screen.getByRole('button', { name: /Continuar/ }));
 
     expect(onChangePreferences).toHaveBeenCalledWith({ focusAreas: ['emocional'] });
     expect(onSaveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'in_progress', step: 0 })
+    );
+
+    await user.click(screen.getByRole('button', { name: /Continuar/ }));
+
+    expect(onSaveProgress).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'in_progress', step: 1 })
     );
-    expect(screen.getByRole('heading', { name: 'Como você se descreve?' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Pacotes de categorias' })).toBeTruthy();
   });
 
   it('pular a etapa não grava resposta inventada', async () => {
@@ -95,7 +100,7 @@ describe('Onboarding', () => {
     await user.click(screen.getByRole('button', { name: 'Pular tudo' }));
 
     expect(onSaveProgress).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'completed', skippedSteps: [0, 1, 2, 3] })
+      expect.objectContaining({ status: 'completed', skippedSteps: [0, 1, 2] })
     );
     expect(onApplyPackages).not.toHaveBeenCalled();
     expect(onFinish).toHaveBeenCalled();
@@ -107,8 +112,8 @@ describe('Onboarding', () => {
       ...DEFAULT_PREFERENCES,
       packageIds: ['pkg_tdah', 'pkg_bipolar', 'pkg_compulsoes', 'pkg_autismo_sensorial'],
     };
-    renderOnboarding({
-      progress: { ...baseProgress, step: 2 },
+    const { onApplyPackages } = renderOnboarding({
+      progress: { ...baseProgress, step: 1 },
       preferences,
       availablePackageIds: ['pkg_geral'],
     });
@@ -118,19 +123,29 @@ describe('Onboarding', () => {
     expect(screen.getByRole('button', { name: /Visão geral/ }).getAttribute('aria-pressed')).toBe(
       'true'
     );
+    expect(onApplyPackages).toHaveBeenCalledWith(['pkg_geral']);
   });
 
   it('última tela grava conforto e conclui', async () => {
     const user = userEvent.setup();
     const { onChangePreferences, onFinish } = renderOnboarding({
-      progress: { ...baseProgress, step: 3 },
+      progress: { ...baseProgress, step: 2 },
     });
+
+    expect(screen.queryByRole('checkbox', { name: /lembrete/i })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Escuro' }));
     await user.click(screen.getByRole('button', { name: /Concluir/ }));
 
     expect(onChangePreferences).toHaveBeenCalledWith({ theme: ThemeMode.DARK });
     expect(onFinish).toHaveBeenCalled();
+  });
+
+  it('não pergunta mais o perfil sem efeito funcional', () => {
+    renderOnboarding();
+
+    expect(screen.queryByText('Como você se descreve?')).toBeNull();
+    expect(screen.getByText('Etapa 1 de 3')).toBeTruthy();
   });
 
   it('deixa claro que não é diagnóstico', () => {

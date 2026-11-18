@@ -52,6 +52,51 @@ describe('ExperimentsPanel', () => {
     expect(screen.queryByText(/apareceu diferença/i)).toBeNull();
   });
 
+  it('foca a primeira leitura, preserva a seleção no Escape e devolve o foco ao fechar', async () => {
+    const user = userEvent.setup();
+    render(
+      <ExperimentsPanel
+        experiments={[experiment]}
+        entries={[urgeEntry('a', '2026-11-09', 8)]}
+        onCloseExperiment={() => {}}
+      />
+    );
+
+    const trigger = screen.getByRole('button', { name: /Encerrar e registrar conclusão/ });
+    await user.click(trigger);
+
+    expect(screen.getByLabelText(/Apareceu diferença/)).toBe(document.activeElement);
+    expect(screen.getByRole('dialog').getAttribute('aria-describedby')).toBe(
+      'experiment-close-description'
+    );
+
+    await user.click(screen.getByLabelText(/Não apareceu diferença/));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Voltar' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(trigger).toBe(document.activeElement);
+  });
+
+  it('fecha com Escape antes de qualquer escolha e devolve o foco ao disparador', async () => {
+    const user = userEvent.setup();
+    render(
+      <ExperimentsPanel
+        experiments={[experiment]}
+        entries={[urgeEntry('a', '2026-11-09', 8)]}
+        onCloseExperiment={() => {}}
+      />
+    );
+
+    const trigger = screen.getByRole('button', { name: /Encerrar e registrar conclusão/ });
+    await user.click(trigger);
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(trigger).toBe(document.activeElement);
+  });
+
   it('encerra com uma das três saídas e devolve a nota', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

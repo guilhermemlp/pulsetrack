@@ -71,7 +71,7 @@ interface FormActionsProps {
 
 function saveLabel(isEditing: boolean, entryType: EntryType, level: RecordLevel): string {
   if (isEditing) return 'Salvar alterações';
-  if (entryType === EntryType.EPISODE) return 'Salvar episódio';
+  if (entryType === EntryType.EPISODE) return 'Salvar registro de comportamento';
   if (level === 'completo') return 'Salvar check-in completo';
   if (level === 'padrao') return 'Salvar check-in detalhado';
   return 'Salvar check-in rápido';

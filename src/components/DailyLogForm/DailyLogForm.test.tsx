@@ -1,7 +1,7 @@
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDefaultCategories, MOOD_DEFINITIONS } from '../../data/defaults';
+import { createDefaultCategories } from '../../data/defaults';
 import {
   BehaviorMode,
   EntryType,
@@ -31,6 +31,7 @@ afterEach(() => {
 
 interface RenderOptions {
   defaultRecordLevel?: RecordLevel;
+  focusAreas?: Array<'emocional' | 'ativacao' | 'sono' | 'comportamentos' | 'gatilhos' | 'medicacao' | 'ciclo' | 'seguranca'>;
   onCreateBehaviorItem?: (categoryId: string, label: string) => { id: string; label: string } | null;
   onSaveAndCompleteLater?: (entry: unknown, isEdit: boolean, nextLevel: RecordLevel) => void;
   entries?: PulseEntry[];
@@ -41,7 +42,7 @@ function renderForm(onSaveEntry = vi.fn(), options: RenderOptions = {}) {
     options.onCreateBehaviorItem ??
     vi.fn((categoryId: string, label: string) => ({ id: `novo_${categoryId}`, label }));
 
-  render(
+  const view = render(
     <DailyLogForm
       categories={createDefaultCategories()}
       entries={options.entries ?? []}
@@ -54,13 +55,14 @@ function renderForm(onSaveEntry = vi.fn(), options: RenderOptions = {}) {
       showSexualCategory={false}
       trackCycle={false}
       defaultRecordLevel={options.defaultRecordLevel ?? 'rapido'}
+      focusAreas={options.focusAreas ?? []}
       reduceMotion={false}
       onCreateBehaviorItem={onCreateBehaviorItem}
       onSaveAndCompleteLater={options.onSaveAndCompleteLater ?? (() => {})}
       onDraftChange={() => {}}
     />
   );
-  return { onSaveEntry, onCreateBehaviorItem };
+  return { onSaveEntry, onCreateBehaviorItem, unmount: view.unmount };
 }
 
 async function escolherMood(user: ReturnType<typeof userEvent.setup>, label: string) {
@@ -75,7 +77,7 @@ describe('DailyLogForm', () => {
     expect(screen.getByRole('heading', { name: 'Como você estava se sentindo?' })).toBeTruthy();
     // No rápido o Pilar 3 é uma única pergunta, não o catálogo inteiro.
     expect(screen.getByRole('heading', { name: 'Teve algum impulso hoje?' })).toBeTruthy();
-    expect(screen.queryByText(/sem episódio compulsivo neste registro/i)).toBeNull();
+    expect(screen.queryByText(/nenhum comportamento registrado neste check-in/i)).toBeNull();
     expect(screen.getByRole('button', { name: 'Salvar check-in rápido' })).toBeTruthy();
   });
 
@@ -83,7 +85,7 @@ describe('DailyLogForm', () => {
     renderForm(vi.fn(), { defaultRecordLevel: 'padrao' });
 
     expect(screen.getByRole('button', { name: 'Salvar check-in detalhado' })).toBeTruthy();
-    expect(screen.getByText(/sem episódio compulsivo neste registro/i)).toBeTruthy();
+    expect(screen.getByText(/nenhum comportamento registrado neste check-in/i)).toBeTruthy();
   });
 
   it('no nível padrão os pilares viram seções recolhíveis com resumo', async () => {
@@ -136,19 +138,16 @@ describe('DailyLogForm', () => {
     expect(entry.depth).toBe('padrao');
   });
 
-  it('exige pelo menos um estado emocional e mostra o erro dentro da MoodSection', async () => {
+  it('salva sem humor e mantém a ausência como vazio, sem preencher "Neutro"', async () => {
     const user = userEvent.setup();
     const { onSaveEntry } = renderForm();
 
     await user.click(screen.getByRole('button', { name: 'Salvar check-in rápido' }));
 
-    const alert = screen.getByRole('alert');
-    expect(alert.textContent).toMatch(/pelo menos um estado emocional/i);
-    // O erro nasce junto ao campo: foco no primeiro chip de humor.
-    expect(document.activeElement).toBe(
-      screen.getByRole('button', { name: MOOD_DEFINITIONS[0].label })
-    );
-    expect(onSaveEntry).not.toHaveBeenCalled();
+    expect(onSaveEntry).toHaveBeenCalledTimes(1);
+    const [entry] = onSaveEntry.mock.calls[0];
+    expect(entry.moods).toEqual([]);
+    expect(entry.moodIntensity).toEqual({});
   });
 
   it('salva um check-in diário sem comportamentos', async () => {
@@ -200,8 +199,8 @@ describe('DailyLogForm', () => {
     const { onSaveEntry } = renderForm();
 
     await escolherMood(user, 'Ansioso');
-    await user.click(screen.getByRole('button', { name: /Episódio comportamental/ }));
-    await user.click(screen.getByRole('button', { name: 'Salvar episódio' }));
+    await user.click(screen.getByRole('button', { name: /Comportamento \(ação ou impulso\)/ }));
+    await user.click(screen.getByRole('button', { name: 'Salvar registro de comportamento' }));
 
     expect(screen.getByRole('alert').textContent).toMatch(/pelo menos um comportamento/i);
     expect(onSaveEntry).not.toHaveBeenCalled();
@@ -212,13 +211,13 @@ describe('DailyLogForm', () => {
     const { onSaveEntry } = renderForm();
 
     await escolherMood(user, 'Ansioso');
-    await user.click(screen.getByRole('button', { name: /Episódio comportamental/ }));
+    await user.click(screen.getByRole('button', { name: /Comportamento \(ação ou impulso\)/ }));
     await user.click(screen.getByRole('button', { name: 'Compras impulsivas' }));
     // Os chips aparecem, mas nada foi adicionado ao registro ainda.
     expect(
       screen.getByRole('button', { name: 'Compras impulsivas: Fiz' })
     ).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Salvar episódio' }));
+    await user.click(screen.getByRole('button', { name: 'Salvar registro de comportamento' }));
 
     expect(screen.getByRole('alert').textContent).toMatch(/pelo menos um comportamento/i);
     expect(onSaveEntry).not.toHaveBeenCalled();
@@ -229,10 +228,10 @@ describe('DailyLogForm', () => {
     const { onSaveEntry } = renderForm();
 
     await escolherMood(user, 'Ansioso');
-    await user.click(screen.getByRole('button', { name: /Episódio comportamental/ }));
+    await user.click(screen.getByRole('button', { name: /Comportamento \(ação ou impulso\)/ }));
     await user.click(screen.getByRole('button', { name: 'Compras impulsivas' }));
     await user.click(screen.getByRole('button', { name: 'Compras impulsivas: Fiz' }));
-    await user.click(screen.getByRole('button', { name: 'Salvar episódio' }));
+    await user.click(screen.getByRole('button', { name: 'Salvar registro de comportamento' }));
     expect(onSaveEntry).toHaveBeenCalledTimes(1);
     const [entry] = onSaveEntry.mock.calls[0];
 
@@ -252,12 +251,12 @@ describe('DailyLogForm', () => {
     const { onSaveEntry } = renderForm();
 
     await escolherMood(user, 'Ansioso');
-    await user.click(screen.getByRole('button', { name: /Episódio comportamental/ }));
+    await user.click(screen.getByRole('button', { name: /Comportamento \(ação ou impulso\)/ }));
     await user.click(screen.getByRole('button', { name: 'Compras impulsivas' }));
     await user.click(
       screen.getByRole('button', { name: 'Compras impulsivas: Só o impulso' })
     );
-    await user.click(screen.getByRole('button', { name: 'Salvar episódio' }));
+    await user.click(screen.getByRole('button', { name: 'Salvar registro de comportamento' }));
 
     const [entry] = onSaveEntry.mock.calls[0];
     expect(entry.behaviors[0].mode).toBe(BehaviorMode.IMPULSO);
@@ -313,7 +312,7 @@ describe('DailyLogForm', () => {
     renderForm(vi.fn(), { onCreateBehaviorItem });
 
     await escolherMood(user, 'Ansioso');
-    await user.click(screen.getByRole('button', { name: /Episódio comportamental/ }));
+    await user.click(screen.getByRole('button', { name: /Comportamento \(ação ou impulso\)/ }));
     await user.click(screen.getByRole('button', { name: 'Criar item em Financeira' }));
     await user.type(screen.getByPlaceholderText('Novo item em Financeira'), 'Gastos por impulso');
     await user.click(screen.getByRole('button', { name: 'Criar e usar' }));
@@ -378,5 +377,175 @@ describe('DailyLogForm', () => {
     await escolherMood(user, 'Ansioso');
 
     expect(screen.getByText(/Rascunho salvo às \d{2}:\d{2}/)).toBeTruthy();
+  });
+
+  describe('restauração de rascunho', () => {
+    const DRAFT_KEY = 'pulsetrack_form_draft_v1';
+
+    it('recupera humor, intensidade, energia e observações após recarregar', async () => {
+      const user = userEvent.setup();
+      const first = renderForm(vi.fn(), { defaultRecordLevel: 'padrao' });
+
+      await escolherMood(user, 'Ansioso');
+      fireEvent.change(screen.getByLabelText('Intensidade de Ansioso'), {
+        target: { value: '8' },
+      });
+      fireEvent.change(screen.getByLabelText(/Nível de energia física e mental/), {
+        target: { value: '3' },
+      });
+      await user.type(
+        screen.getByPlaceholderText(/Qualquer detalhe que ajude você/),
+        'dormi mal e acordei acelerado'
+      );
+
+      expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
+      first.unmount();
+
+      renderForm(vi.fn(), { defaultRecordLevel: 'padrao' });
+
+      expect(
+        screen.getByText(/Rascunho do seu último registro foi restaurado/)
+      ).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Ansioso' }).getAttribute('aria-pressed')).toBe(
+        'true'
+      );
+      expect((screen.getByLabelText('Intensidade de Ansioso') as HTMLInputElement).value).toBe(
+        '8'
+      );
+      expect(
+        (screen.getByLabelText(/Nível de energia física e mental/) as HTMLInputElement).value
+      ).toBe('3');
+      expect(
+        (screen.getByPlaceholderText(/Qualquer detalhe que ajude você/) as HTMLTextAreaElement)
+          .value
+      ).toBe('dormi mal e acordei acelerado');
+    });
+
+    it('preserva o tipo episódio, o nível e os comportamentos escolhidos', async () => {
+      const user = userEvent.setup();
+      const first = renderForm();
+
+      await escolherMood(user, 'Ansioso');
+      await user.click(
+        screen.getByRole('button', { name: /Comportamento.*ação ou impulso/ })
+      );
+      await user.click(screen.getByRole('button', { name: 'Compras impulsivas' }));
+      await user.click(screen.getByRole('button', { name: 'Compras impulsivas: Fiz' }));
+      first.unmount();
+
+      renderForm();
+
+      expect(screen.getByRole('button', { name: /^Comportamento: ação ou impulso/ })
+          .getAttribute('aria-pressed')
+      ).toBe('true');
+      expect(screen.getByRole('button', { name: 'Salvar registro de comportamento' })).toBeTruthy();
+      expect(
+        screen.getByRole('button', { name: 'Remover Compras impulsivas (fiz)' })
+      ).toBeTruthy();
+    });
+
+    it('preserva a resposta "Não" do portão de impulso', async () => {
+      const user = userEvent.setup();
+      const first = renderForm();
+
+      await escolherMood(user, 'Ansioso');
+      const impulseSection = screen
+        .getByRole('heading', { name: 'Teve algum impulso hoje?' })
+        .closest('section') as HTMLElement;
+      await user.click(within(impulseSection).getByRole('button', { name: 'Não' }));
+      first.unmount();
+
+      renderForm();
+
+      expect(screen.getByText(/sem impulso registrado/i)).toBeTruthy();
+    });
+
+    it('preserva a profundidade escolhida manualmente', async () => {
+      const user = userEvent.setup();
+      const first = renderForm();
+
+      await escolherMood(user, 'Neutro');
+      await user.click(screen.getByRole('button', { name: 'Padrão' }));
+      first.unmount();
+
+      renderForm();
+
+      expect(screen.getByRole('button', { name: 'Salvar check-in detalhado' })).toBeTruthy();
+    });
+
+    it('reconhece e mantém um rascunho com apenas a intensidade de um humor', async () => {
+      localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({
+          savedAt: new Date().toISOString(),
+          payload: { moodIntensity: { ansioso: 7 } },
+        })
+      );
+
+      renderForm();
+
+      expect(
+        screen.getByText(/Rascunho do seu último registro foi restaurado/)
+      ).toBeTruthy();
+      await waitFor(() => expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull());
+    });
+
+    it('reconhece e mantém um rascunho com apenas um campo de sono', async () => {
+      localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({
+          savedAt: new Date().toISOString(),
+          payload: { sleepHours: 6 },
+        })
+      );
+
+      renderForm();
+
+      expect(
+        screen.getByText(/Rascunho do seu último registro foi restaurado/)
+      ).toBeTruthy();
+      await waitFor(() => expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull());
+    });
+
+    it('não apaga o rascunho quando a persistência final falha', async () => {
+      const user = userEvent.setup();
+      const onSaveEntry = vi.fn(() => false);
+      renderForm(onSaveEntry);
+
+      await escolherMood(user, 'Ansioso');
+      await user.click(screen.getByRole('button', { name: 'Salvar check-in rápido' }));
+
+      expect(onSaveEntry).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
+      expect(screen.getByRole('button', { name: 'Ansioso' }).getAttribute('aria-pressed')).toBe(
+        'true'
+      );
+    });
+
+    it('remove o rascunho somente após salvar com sucesso', async () => {
+      const user = userEvent.setup();
+      renderForm();
+
+      await escolherMood(user, 'Ansioso');
+      expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Salvar check-in rápido' }));
+
+      expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+  });
+});
+
+describe('DailyLogForm — foco do onboarding', () => {
+  it('destaca as áreas escolhidas sem esconder os pilares', () => {
+    renderForm(vi.fn(), { focusAreas: ['sono', 'comportamentos'] });
+
+    const focus = screen.getByRole('region', { name: 'Seu foco inicial' });
+    expect(within(focus).getByText('Sono')).toBeTruthy();
+    expect(within(focus).getByText('Comportamentos')).toBeTruthy();
+    expect(within(focus).getByText(/nenhum pilar foi escondido/i)).toBeTruthy();
+    expect(screen.getByText(/Pilar 1 · Estado emocional/)).toBeTruthy();
+    expect(screen.getByText(/Pilar 2 · Estado de ativação e sono/)).toBeTruthy();
+    expect(screen.getByText(/Pilar 3 · Comportamento/)).toBeTruthy();
   });
 });

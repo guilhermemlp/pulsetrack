@@ -68,6 +68,9 @@ export function getRecentBehaviors(
 
   for (const entry of recentEntries) {
     for (const behavior of entry.behaviors) {
+      // Um chip exige um modo atual: dados legados sem classificação não podem
+      // reaparecer como "fiz" nem como "impulso" por suposição.
+      if (behavior.mode === BehaviorMode.DESCONHECIDO) continue;
       if (seen.has(behavior.itemId)) continue;
       const match = activeItems.get(behavior.itemId);
       if (!match) continue;
@@ -116,5 +119,7 @@ export function countActiveItems(categories: BehaviorCategory[]): number {
 }
 
 export function describeBehaviorMode(mode: BehaviorMode): string {
-  return mode === BehaviorMode.IMPULSO ? 'impulso' : 'fiz';
+  if (mode === BehaviorMode.IMPULSO) return 'impulso';
+  if (mode === BehaviorMode.FEITO) return 'fiz';
+  return 'modo não informado';
 }

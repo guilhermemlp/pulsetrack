@@ -100,6 +100,8 @@ export enum ResistanceResult {
 export enum BehaviorMode {
   FEITO = 'feito',
   IMPULSO = 'impulso',
+  /** Dado antigo/importado sem modo explícito: não é convertido em ação nem em impulso. */
+  DESCONHECIDO = 'desconhecido',
 }
 
 export enum MoodSwingDirection {
@@ -250,8 +252,10 @@ export type ProfileHint =
   | 'prefiro_nao_dizer';
 
 export interface OnboardingProgress {
+  /** 2 = onboarding atual, com 3 telas; ausente = formato antigo de 4 telas. */
+  version?: 2;
   status: 'not_started' | 'in_progress' | 'completed';
-  /** Tela em que a pessoa parou (0–3). */
+  /** Tela em que a pessoa parou (0–2). */
   step: number;
   /** Telas puladas explicitamente; não voltam sozinhas. */
   skippedSteps: number[];
@@ -280,9 +284,15 @@ export interface SelectedBehavior {
   categoryName: string;
   itemId: string;
   itemLabel: string;
-  /** "feito" = ocorreu de fato; "impulso" = houve vontade e a pessoa não levou adiante. */
+  /**
+   * "feito" = ação efetivamente realizada; "impulso" = houve vontade e a pessoa não
+   * levou adiante; "desconhecido" = dado legado/importado sem classificação explícita.
+   */
   mode: BehaviorMode;
-  /** A ocorrência (ou o esforço para conter) gerou prejuízo ou sofrimento relevante? */
+  /**
+   * A ocorrência (ou o esforço para conter) gerou prejuízo ou sofrimento relevante?
+   * É sempre um relato explícito; nunca inferido do modo ou da existência da ação.
+   */
   harm: boolean;
 }
 
@@ -316,7 +326,7 @@ export interface MedicationRecord {
 
 export interface PulseEntry {
   id: string;
-  /** Distingue check-in diário independente de episódio comportamental */
+  /** Contexto declarado do formulário; a contagem de episódios usa as ações realizadas. */
   entryType: EntryType;
   /** Profundidade usada neste registro. Registros antigos ficam `null` (nunca inferido). */
   depth: RecordLevel | null;
@@ -378,13 +388,19 @@ export interface UserPreferences {
   /** Profundidade inicial do formulário de registro. */
   defaultRecordLevel: RecordLevel;
   reportLabel: string;
-  /** Áreas escolhidas no onboarding (T1). */
+  /** Áreas escolhidas no onboarding (T1). Destacam o foco no formulário. */
   focusAreas: FocusArea[];
-  /** Rascunho interno de perfil (T2). Não é diagnóstico nem aparece em relatórios. */
+  /**
+   * Campo legado (T2): a pergunta foi removida do onboarding porque não tinha efeito
+   * funcional. O valor antigo é preservado para não apagar dados, mas não é lido pelo app.
+   */
   profileHint: ProfileHint | null;
   /** Pacotes já oferecidos/aplicados — evitam oferta repetida (T3). */
   packageIds: PackageId[];
-  /** Lembrete diário opt-in (preferência local, sem envio automático). */
+  /**
+   * Campos legados de lembrete: não há notificações nesta versão. São preservados para
+   * compatibilidade de backup, mas normalizados como inativos e não lidos pela interface.
+   */
   reminderOptIn: boolean;
   reminderTime: string;
 }
@@ -393,10 +409,16 @@ export interface CategoryStat {
   categoryId: string;
   categoryName: string;
   color: string;
+  /** Registros com a categoria, somando ação realizada e impulso contido. */
   count: number;
+  /** Registros com ao menos uma ação realizada nesta categoria. */
+  realizedCount: number;
+  /** Registros com ao menos um impulso nesta categoria. */
+  impulseCount: number;
+  /** Participação nos registros que trouxeram algum comportamento (não nos episódios). */
   percentage: number;
   avgUrge: number | null;
-  /** Episódios da categoria em que o comportamento gerou prejuízo/sofrimento. */
+  /** Registros da categoria em que o comportamento gerou prejuízo/sofrimento relatado. */
   harmCount: number;
   topItems: Array<{ label: string; count: number }>;
 }
@@ -406,13 +428,13 @@ export interface MoodBehaviorStat {
   label: string;
   /** Registros (check-ins + episódios) em que o humor foi marcado */
   count: number;
-  /** Quantos desses registros eram episódios comportamentais */
+  /** Quantos desses registros tinham ao menos uma ação realizada */
   episodeCount: number;
-  /** % de registros com esse humor que viraram episódio */
+  /** % de registros com esse humor que tiveram ação realizada */
   episodeRate: number;
   avgEnergy: number | null;
   avgValence: number | null;
-  /** Intensidade média da vontade apenas entre os episódios desse humor (null quando não há episódio) */
+  /** Intensidade média da vontade apenas entre registros com ação desse humor */
   avgUrge: number | null;
   colorLight: string;
   colorDark: string;
@@ -423,7 +445,9 @@ export interface DailyPoint {
   date: string;
   shortLabel: string;
   totalEntries: number;
+  /** Registros com ao menos uma ação realizada. */
   episodeCount: number;
+  hasImpulse: boolean;
   hasCheckinOnly: boolean;
   avgEnergy: number | null;
   avgValence: number | null;
@@ -505,7 +529,7 @@ export type MetricKey =
 export interface MetricCoverage {
   /** Registros com o campo respondido. */
   answered: number;
-  /** Registros aos quais o campo se aplica (ex.: urge só em episódios). */
+  /** Registros aos quais o campo se aplica (ex.: urge em registros com comportamento). */
   base: number;
 }
 
@@ -513,12 +537,19 @@ export interface AnalyticsSummary {
   /** "informado em X de Y" por eixo — base honesta de cada seção do relatório. */
   coverage: Record<MetricKey, MetricCoverage>;
   totalEntries: number;
+  /** Registros com ao menos uma ação realizada. Impulso contido não entra aqui. */
   totalEpisodes: number;
-  totalCheckinsOnly: number;
+  /** Registros sem ação realizada (inclui impulsos contidos e dados não classificados). */
+  totalEntriesWithoutRealizedBehavior: number;
+  /** Registros com impulso e nenhuma ação realizada. */
+  totalImpulseOnlyEntries: number;
+  /** Registros com comportamento legado/importado sem classificação de modo. */
+  totalUnclassifiedBehaviorEntries: number;
   periodDays: number;
   daysLogged: number;
+  /** Dias com ao menos uma ação realizada. */
   daysWithEpisodes: number;
-  /** Dias com registro e sem nenhum episódio (não inclui dias sem registro) */
+  /** Dias com registro e sem ação realizada (não inclui dias sem registro) */
   daysWithoutEpisodes: number;
   /** Dias do recorte sem nenhum registro */
   daysWithoutLog: number;
@@ -532,6 +563,8 @@ export interface AnalyticsSummary {
   sleepReportedCount: number;
   valenceReportedCount: number;
   reducedSleepNeedCount: number;
+  /** Registros que responderam sobre redução da necessidade de sono. */
+  reducedSleepNeedBase: number;
   reducedSleepNeedRate: number;
   poorSleepCount: number;
   /** Dormiu pouco e sem fadiga depois — marcador mais específico de mania */
@@ -559,9 +592,17 @@ export interface AnalyticsSummary {
     naoInformado: number;
   };
   behaviorModes: {
+    /** Itens de comportamento marcados como realizados. */
     feitos: number;
+    /** Itens marcados como impulso, com ou sem ação no mesmo registro. */
     impulsos: number;
+    /** Itens com prejuízo/sofrimento explicitamente marcado. */
     comPrejuizo: number;
+    registrosComAcao: number;
+    registrosComImpulso: number;
+    registrosComPrejuizo: number;
+    registrosComClassificacaoDesconhecida: number;
+    /** Registros com impulso e nenhuma ação realizada. */
     registrosComImpulsoSemAcao: number;
   };
   safetySummary: {

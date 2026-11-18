@@ -3,6 +3,7 @@ import { createDefaultCategories } from '../data/defaults';
 import { renameItem } from './categories';
 import {
   AwarenessType,
+  BehaviorMode,
   EntryType,
   FunctionalImpactLevel,
   MoodStateId,
@@ -19,6 +20,10 @@ import {
   filterEntriesByPeriod,
   formatLongDate,
   formatShortDate,
+  hasImpulse,
+  hasRealizedBehavior,
+  hasReportedHarm,
+  hasUnclassifiedBehavior,
   isEpisodeEntry,
   summarizeCoverage,
   toLocalIsoDate,
@@ -33,10 +38,26 @@ function dateOffset(daysAgo: number): string {
   return toLocalIsoDate(d);
 }
 
+type BehaviorSeed = Partial<SelectedBehavior> &
+  Pick<SelectedBehavior, 'categoryId' | 'categoryName' | 'itemId' | 'itemLabel'>;
+
 type EntrySeed = Omit<Partial<PulseEntry>, 'sleep' | 'behaviors'> & {
   sleep?: Partial<SleepRecord>;
-  behaviors?: Array<Omit<SelectedBehavior, 'mode' | 'harm'>>;
+  behaviors?: BehaviorSeed[];
 };
+
+/** Fixture explícita: ação realizada sem prejuízo, salvo quando o teste disser o contrário. */
+function behavior(overrides: Partial<SelectedBehavior> = {}): SelectedBehavior {
+  return {
+    categoryId: 'cat_financeira',
+    categoryName: 'Financeira',
+    itemId: 'fin_compras',
+    itemLabel: 'Compras impulsivas',
+    mode: BehaviorMode.FEITO,
+    harm: false,
+    ...overrides,
+  };
+}
 
 function makeEntry(overrides: EntrySeed = {}): PulseEntry {
   return normalizeEntry({
@@ -45,6 +66,12 @@ function makeEntry(overrides: EntrySeed = {}): PulseEntry {
     time: '20:00',
     createdAt: `${overrides.date ?? dateOffset(1)}T20:00:00`,
     ...overrides,
+    // A fixture só cria ação/impulso quando o modo é dito; não usa o fallback legado.
+    behaviors: overrides.behaviors?.map((item) => ({
+      ...item,
+      mode: item.mode ?? BehaviorMode.FEITO,
+      harm: item.harm ?? false,
+    })),
   } as Partial<PulseEntry>);
 }
 
@@ -69,14 +96,7 @@ function buildScenario(): PulseEntry[] {
       sleep: { hours: 4.5, quality: SleepQuality.RUIM, reducedNeed: ReducedSleepNeed.MARCANTE },
       stateDuration: StateDuration.DIAS_1_3,
       hadMoodSwing: true,
-      behaviors: [
-        {
-          categoryId: 'cat_financeira',
-          categoryName: 'Financeira',
-          itemId: 'fin_compras',
-          itemLabel: 'Compras impulsivas',
-        },
-      ],
+      behaviors: [behavior()],
       awareness: AwarenessType.AUTOMATICO,
       resisted: ResistanceResult.NAO,
       urgeIntensity: 9,
@@ -96,12 +116,12 @@ function buildScenario(): PulseEntry[] {
       sleep: { hours: 9, quality: SleepQuality.BOA, reducedNeed: ReducedSleepNeed.NAO },
       stateDuration: StateDuration.DIAS_1_3,
       behaviors: [
-        {
+        behavior({
           categoryId: 'cat_digital',
           categoryName: 'Digital / Hiperestimulação',
           itemId: 'dig_scroll',
           itemLabel: 'Scroll infinito / feeds',
-        },
+        }),
       ],
       urgeIntensity: 5,
     }),
@@ -142,16 +162,84 @@ describe('filterEntriesByPeriod', () => {
   });
 });
 
-describe('isEpisodeEntry', () => {
-  it('considera episódio pelo tipo declarado', () => {
-    expect(isEpisodeEntry(makeEntry({ entryType: EntryType.EPISODE }))).toBe(true);
+describe('isEpisodeEntry e predicados de comportamento', () => {
+  it('não considera episódio apenas pelo tipo declarado', () => {
+    expect(isEpisodeEntry(makeEntry({ entryType: EntryType.EPISODE }))).toBe(false);
   });
 
-  it('considera episódio quando há comportamento registrado, mesmo em check-in', () => {
-    const entries = buildScenario();
-    const comComportamento = { ...entries[0], behaviors: entries[1].behaviors };
+  it('considera episódio quando há ação realizada, mesmo em check-in', () => {
+    expect(
+      isEpisodeEntry(
+        makeEntry({ entryType: EntryType.DAILY_CHECKIN, behaviors: [behavior()] })
+      )
+    ).toBe(true);
+  });
 
-    expect(isEpisodeEntry(comComportamento)).toBe(true);
+  it('não conta impulso contido como ação realizada', () => {
+    const impulso = makeEntry({
+      entryType: EntryType.EPISODE,
+      behaviors: [behavior({ mode: BehaviorMode.IMPULSO })],
+    });
+
+    expect(hasImpulse(impulso)).toBe(true);
+    expect(hasRealizedBehavior(impulso)).toBe(false);
+    expect(isEpisodeEntry(impulso)).toBe(false);
+  });
+
+  it('reconhece impulso seguido de ação sem reduzir os dois a uma única categoria', () => {
+    const misto = makeEntry({
+      behaviors: [
+        behavior({ mode: BehaviorMode.IMPULSO }),
+        behavior({
+          categoryId: 'cat_digital',
+          categoryName: 'Digital',
+          itemId: 'dig_scroll',
+          itemLabel: 'Scroll',
+        }),
+      ],
+    });
+
+    expect(hasImpulse(misto)).toBe(true);
+    expect(hasRealizedBehavior(misto)).toBe(true);
+    expect(isEpisodeEntry(misto)).toBe(true);
+  });
+
+  it('não presume impulso nem prejuízo pela existência de uma ação', () => {
+    const acao = makeEntry({ behaviors: [behavior()] });
+    expect(hasImpulse(acao)).toBe(false);
+    expect(hasImpulse(makeEntry({ urgeIntensity: 0 }))).toBe(false);
+    expect(hasImpulse(makeEntry({ urgeIntensity: 5 }))).toBe(true);
+    expect(hasReportedHarm(acao)).toBe(false);
+    expect(hasReportedHarm(makeEntry({ behaviors: [behavior({ harm: true })] }))).toBe(true);
+  });
+
+  it('mantém texto livre isolado como não classificado', () => {
+    const livre = makeEntry({ behaviorOtherText: 'Vontade de comprar' });
+
+    expect(hasRealizedBehavior(livre)).toBe(false);
+    expect(hasImpulse(livre)).toBe(false);
+    expect(hasUnclassifiedBehavior(livre)).toBe(true);
+    expect(isEpisodeEntry(livre)).toBe(false);
+  });
+
+  it('mantém dado legado sem modo como não classificado', () => {
+    const legado = normalizeEntry({
+      id: 'legado',
+      date: dateOffset(1),
+      behaviors: [
+        {
+          categoryId: 'cat_financeira',
+          categoryName: 'Financeira',
+          itemId: 'fin_compras',
+          itemLabel: 'Compras impulsivas',
+        },
+      ] as PulseEntry['behaviors'],
+    });
+
+    expect(legado.behaviors[0]?.mode).toBe(BehaviorMode.DESCONHECIDO);
+    expect(hasImpulse(legado)).toBe(false);
+    expect(hasRealizedBehavior(legado)).toBe(false);
+    expect(hasUnclassifiedBehavior(legado)).toBe(true);
   });
 
   it('não considera episódio um check-in sem comportamentos', () => {
@@ -181,7 +269,7 @@ describe('computeAnalytics', () => {
 
     expect(analytics.totalEntries).toBe(3);
     expect(analytics.totalEpisodes).toBe(2);
-    expect(analytics.totalCheckinsOnly).toBe(1);
+    expect(analytics.totalEntriesWithoutRealizedBehavior).toBe(1);
     expect(analytics.daysLogged).toBe(3);
     expect(analytics.daysWithEpisodes).toBe(2);
     // 3 dias acompanhados, 2 com episódio → 1 dia acompanhado sem episódio
@@ -191,8 +279,82 @@ describe('computeAnalytics', () => {
     // (7 + 8 + 2) / 3 e (5 + 4.5 + 9) / 3
     expect(analytics.avgEnergy).toBe(5.7);
     expect(analytics.avgSleepHours).toBe(6.2);
-    // Apenas episódios entram na média de intensidade da vontade: (9 + 5) / 2
+    // A média de vontade usa todos os registros que a informaram: (9 + 5) / 2
     expect(analytics.avgUrgeIntensity).toBe(7);
+  });
+
+  it('separa ação realizada, impulso contido e prejuízo relatado', () => {
+    const entries = [
+      makeEntry({
+        id: 'acao',
+        date: dateOffset(1),
+        behaviors: [behavior()],
+      }),
+      makeEntry({
+        id: 'acao-com-prejuizo',
+        date: dateOffset(2),
+        behaviors: [behavior({ harm: true })],
+      }),
+      makeEntry({
+        id: 'so-impulso',
+        date: dateOffset(3),
+        entryType: EntryType.EPISODE,
+        behaviors: [behavior({ mode: BehaviorMode.IMPULSO })],
+        urgeIntensity: 8,
+      }),
+      makeEntry({
+        id: 'misto',
+        date: dateOffset(4),
+        behaviors: [
+          behavior({ mode: BehaviorMode.IMPULSO }),
+          behavior({
+            categoryId: 'cat_digital',
+            categoryName: 'Digital',
+            itemId: 'dig_scroll',
+            itemLabel: 'Scroll',
+          }),
+        ],
+        urgeIntensity: 6,
+      }),
+      normalizeEntry({
+        id: 'legado',
+        date: dateOffset(5),
+        behaviors: [
+          {
+            categoryId: 'cat_financeira',
+            categoryName: 'Financeira',
+            itemId: 'fin_compras',
+            itemLabel: 'Compras impulsivas',
+          },
+        ] as PulseEntry['behaviors'],
+      }),
+    ];
+
+    const analytics = computeAnalytics(entries, createDefaultCategories(), '7');
+
+    expect(analytics.totalEntries).toBe(5);
+    expect(analytics.totalEpisodes).toBe(3);
+    expect(analytics.totalEntriesWithoutRealizedBehavior).toBe(2);
+    expect(analytics.totalImpulseOnlyEntries).toBe(1);
+    expect(analytics.totalUnclassifiedBehaviorEntries).toBe(1);
+    expect(analytics.behaviorModes).toEqual({
+      feitos: 3,
+      impulsos: 2,
+      comPrejuizo: 1,
+      registrosComAcao: 3,
+      registrosComImpulso: 2,
+      registrosComPrejuizo: 1,
+      registrosComClassificacaoDesconhecida: 1,
+      registrosComImpulsoSemAcao: 1,
+    });
+    expect(analytics.coverage.behavior.base).toBe(5);
+    expect(analytics.coverage.urge).toEqual({ answered: 2, base: 5 });
+
+    const financeira = analytics.categoryStats.find((c) => c.categoryId === 'cat_financeira')!;
+    expect(financeira.count).toBe(5);
+    expect(financeira.realizedCount).toBe(2);
+    expect(financeira.impulseCount).toBe(2);
+    expect(financeira.harmCount).toBe(1);
   });
 
   it('sempre inclui o insight de segurança, com ou sem sofrimento grave', () => {
@@ -217,6 +379,7 @@ describe('computeAnalytics', () => {
     const analytics = computeAnalytics(buildScenario(), createDefaultCategories(), '7');
 
     expect(analytics.reducedSleepNeedCount).toBe(2);
+    expect(analytics.reducedSleepNeedBase).toBe(3);
     expect(analytics.reducedSleepNeedRate).toBe(67);
     expect(analytics.poorSleepCount).toBe(2);
   });
@@ -258,10 +421,10 @@ describe('computeAnalytics', () => {
 });
 
 describe('moodStats', () => {
-  it('calcula a taxa de episódios e a vontade apenas sobre episódios', () => {
+  it('calcula a taxa de ações realizadas e a vontade apenas sobre elas', () => {
     const entries = [
-      // O mesmo humor em um check-in calmo (urge 0 por definição) e em um episódio:
-      // a média não pode ser diluída pelo check-in.
+      // O mesmo humor em um check-in calmo e em um registro com ação:
+      // a média de vontade não pode ser diluída pelo check-in.
       makeEntry({
         id: 'calmo',
         date: dateOffset(2),
@@ -275,6 +438,7 @@ describe('moodStats', () => {
         moods: [MoodStateId.TRISTE_VAZIO],
         energyLevel: 3,
         entryType: EntryType.EPISODE,
+        behaviors: [behavior()],
         urgeIntensity: 8,
       }),
     ];
@@ -297,6 +461,7 @@ describe('evolução comparada ao período anterior', () => {
       date: dateOffset(daysAgo),
       entryType: EntryType.EPISODE,
       moods: [MoodStateId.ANSIOSO],
+      behaviors: [behavior()],
       urgeIntensity: urge,
     });
 
@@ -569,9 +734,7 @@ describe('cobertura do período', () => {
         entryType: EntryType.EPISODE,
         date: dateOffset(2),
         moods: [MoodStateId.ANSIOSO],
-        behaviors: [
-          { categoryId: 'cat_financeira', categoryName: 'Financeira', itemId: 'fin_compras', itemLabel: 'Compras impulsivas' },
-        ],
+        behaviors: [behavior()],
       }),
     ];
 
@@ -586,7 +749,7 @@ describe('cobertura do período', () => {
     expect(coverage.mood).toEqual({ answered: 2, base: 2 });
     expect(coverage.energy).toEqual({ answered: 1, base: 2 });
     expect(coverage.sleepHours).toEqual({ answered: 1, base: 2 });
-    // Vontade e consciência só se aplicam a episódios.
+    // Vontade e consciência se aplicam aos registros com comportamento/impulso.
     expect(coverage.urge.base).toBe(totalEpisodes);
     expect(coverage.behavior).toEqual({ answered: 1, base: 1 });
     expect(coverage.safety).toEqual({ answered: 0, base: 2 });

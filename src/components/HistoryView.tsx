@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Search, Trash2 } from 'lucide-react';
 import {
   ACTIVATION_SIGNAL_OPTIONS,
@@ -17,14 +17,21 @@ import {
   AppTab,
   AwarenessType,
   BehaviorCategory,
-  BehaviorMode,
+  EntryType,
   FunctionalImpactLevel,
   PulseEntry,
   ReducedSleepNeed,
   ResistanceResult,
 } from '../types/pulsetrack';
-import { formatLongDate, isEpisodeEntry } from '../utils/analytics';
+import {
+  formatLongDate,
+  hasImpulse,
+  hasRealizedBehavior,
+  hasUnclassifiedBehavior,
+} from '../utils/analytics';
+import { describeBehaviorMode } from '../utils/recentBehaviors';
 import { FormDraft } from '../utils/storage';
+import { DailyTimeline } from './DailyTimeline';
 import { DraftResumeCard } from './DraftResumeCard';
 
 interface HistoryViewProps {
@@ -39,7 +46,7 @@ interface HistoryViewProps {
   onDiscardDraft: () => void;
 }
 
-type TypeFilter = 'all' | 'episodes' | 'checkins';
+type TypeFilter = 'all' | 'realized' | 'impulse' | 'unclassified' | 'checkins';
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   entries,
@@ -56,15 +63,38 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'day' | 'all'>('day');
+  const returnDeleteFocusId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (confirmDeleteId) {
+      document.getElementById(`cancel-delete-${confirmDeleteId}`)?.focus();
+      return;
+    }
+    if (returnDeleteFocusId.current) {
+      document.getElementById(`delete-entry-${returnDeleteFocusId.current}`)?.focus();
+      returnDeleteFocusId.current = null;
+    }
+  }, [confirmDeleteId]);
 
   const sortedAndFiltered = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return [...entries]
       .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
       .filter((entry) => {
-        const isEpisode = isEpisodeEntry(entry);
-        if (typeFilter === 'episodes' && !isEpisode) return false;
-        if (typeFilter === 'checkins' && isEpisode) return false;
+        if (typeFilter === 'realized' && !hasRealizedBehavior(entry)) return false;
+        if (typeFilter === 'impulse' && !(hasImpulse(entry) && !hasRealizedBehavior(entry))) {
+          return false;
+        }
+        if (typeFilter === 'unclassified' && !hasUnclassifiedBehavior(entry)) return false;
+        if (
+          typeFilter === 'checkins' &&
+          (hasRealizedBehavior(entry) ||
+            hasImpulse(entry) ||
+            hasUnclassifiedBehavior(entry))
+        ) {
+          return false;
+        }
 
         if (selectedCategoryFilter !== 'all') {
           const hasCat = entry.behaviors.some((b) => b.categoryId === selectedCategoryFilter);
@@ -179,7 +209,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           Histórico longitudinal
         </h1>
         <p className="text-base" style={{ color: 'var(--text-secondary)' }}>
-          Seus check-ins diários e episódios aparecerão aqui em ordem cronológica, com sono, ativação e impacto funcional.
+          Seus registros, impulsos contidos e episódios com ação aparecerão aqui em ordem cronológica, com sono, ativação e impacto funcional.
         </p>
         <button
           type="button"
@@ -207,6 +237,44 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </p>
       </div>
 
+      <div
+        role="group"
+        aria-label="Modo de visualização do histórico"
+        className="inline-flex flex-wrap gap-1.5 p-1 rounded-xl border"
+        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-hairline)' }}
+      >
+        {[
+          { id: 'day' as const, label: 'Visão do dia' },
+          { id: 'all' as const, label: 'Todos os registros' },
+        ].map((mode) => {
+          const active = viewMode === mode.id;
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => setViewMode(mode.id)}
+              aria-pressed={active}
+              className="min-h-[44px] px-4 rounded-lg text-sm font-medium whitespace-nowrap cursor-pointer"
+              style={{
+                backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
+                color: active ? 'var(--color-primary-strong)' : 'var(--text-secondary)',
+              }}
+            >
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {viewMode === 'day' ? (
+        <DailyTimeline
+          entries={entries}
+          onEditEntry={onEditEntry}
+          onDeleteEntry={onDeleteEntry}
+          onNavigate={onNavigate}
+        />
+      ) : (
+        <>
       {/* Filtros de tipo, busca e categoria */}
       <div className="space-y-3">
         <div
@@ -217,8 +285,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         >
           {[
             { id: 'all' as TypeFilter, label: 'Todos' },
-            { id: 'checkins' as TypeFilter, label: 'Check-ins sem episódio' },
-            { id: 'episodes' as TypeFilter, label: 'Episódios comportamentais' },
+            { id: 'realized' as TypeFilter, label: 'Com ação realizada' },
+            { id: 'impulse' as TypeFilter, label: 'Só impulso, sem ação' },
+            { id: 'unclassified' as TypeFilter, label: 'Sem classificação' },
+            { id: 'checkins' as TypeFilter, label: 'Sem comportamento' },
           ].map((t) => {
             const active = typeFilter === t.id;
             return (
@@ -302,7 +372,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       ) : (
         <div className="space-y-4">
           {sortedAndFiltered.map((entry) => {
-            const isEpisode = isEpisodeEntry(entry);
+            const hasAction = hasRealizedBehavior(entry);
+            const entryHasImpulse = hasImpulse(entry);
+            const unclassified = hasUnclassifiedBehavior(entry);
+            const declaredEpisode = entry.entryType === EntryType.EPISODE;
+            const showBehaviorDetails =
+              entry.behaviors.length > 0 ||
+              entry.behaviorOtherText.trim().length > 0 ||
+              entry.urgeIntensity !== null ||
+              declaredEpisode;
+            const entryLabel = hasAction
+              ? 'Episódio com ação realizada'
+              : entryHasImpulse
+              ? 'Impulso contido'
+              : unclassified || declaredEpisode
+              ? 'Registro sem classificação de ação'
+              : 'Check-in diário';
             const activationLabels = entry.activationSignals
               .map((id) => ACTIVATION_SIGNAL_OPTIONS.find((o) => o.id === id)?.label ?? id)
               .join(' · ');
@@ -333,9 +418,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     >
                       <span
                         className="font-semibold"
-                        style={{ color: isEpisode ? 'var(--color-accent)' : 'var(--color-secondary-ink)' }}
+                        style={{
+                          color: hasAction
+                            ? 'var(--color-accent)'
+                            : entryHasImpulse
+                            ? 'var(--color-secondary-ink)'
+                            : 'var(--text-secondary)',
+                        }}
                       >
-                        {isEpisode ? 'Episódio' : 'Check-in diário'}
+                        {entryLabel}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -411,8 +502,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           Confirmar
                         </button>
                         <button
+                          id={`cancel-delete-${entry.id}`}
                           type="button"
-                          onClick={() => setConfirmDeleteId(null)}
+                          onClick={() => {
+                            returnDeleteFocusId.current = entry.id;
+                            setConfirmDeleteId(null);
+                          }}
                           className="min-h-[48px] px-3.5 py-2 rounded-xl border text-sm cursor-pointer"
                           style={{
                             backgroundColor: 'var(--bg-elevated)',
@@ -425,6 +520,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       </div>
                     ) : (
                       <button
+                        id={`delete-entry-${entry.id}`}
                         type="button"
                         onClick={() => setConfirmDeleteId(entry.id)}
                         aria-label={`Excluir registro de ${formatLongDate(entry.date)}`}
@@ -441,7 +537,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   </div>
                 </div>
 
-                {isEpisode && (
+                {showBehaviorDetails && (
                   <div className="text-sm sm:text-base space-y-1" style={{ color: 'var(--text-primary)' }}>
                     <p>
                       <span className="font-semibold">Comportamentos: </span>
@@ -450,12 +546,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           ? entry.behaviors
                               .map(
                                 (b) =>
-                                  `${b.itemLabel} [${
-                                    b.mode === BehaviorMode.IMPULSO ? 'só impulso' : 'fiz'
-                                  }${b.harm ? ', com prejuízo' : ''}]`
+                                  `${b.itemLabel} [${describeBehaviorMode(b.mode)}${
+                                    b.harm ? ', com prejuízo/sofrimento relatado' : ''
+                                  }]`
                               )
-                              .concat(entry.behaviorOtherText ? [entry.behaviorOtherText] : [])
+                              .concat(
+                                entry.behaviorOtherText
+                                  ? [`Outro: ${entry.behaviorOtherText}`]
+                                  : []
+                              )
                               .join(' · ')
+                          : entry.behaviorOtherText
+                          ? `${entry.behaviorOtherText} [modo não informado]`
                           : 'não informado'}
                       </span>
                     </p>
@@ -540,6 +642,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             );
           })}
         </div>
+      )}
+        </>
       )}
     </div>
   );

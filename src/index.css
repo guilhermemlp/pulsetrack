@@ -3,8 +3,9 @@
 
 /* ==========================================================================
    Tipografia auto-hospedada (woff2 variáveis, subset latin + latin-ext).
-   Nenhuma requisição a fonts.googleapis.com: o app funciona 100% offline e
-   não vaza o IP do usuário para terceiros. Arquivos em src/fonts.
+   Nenhuma requisição a fonts.googleapis.com: o app não depende de recursos
+   externos para tipografia e não vaza o IP do usuário para terceiros.
+   Arquivos em src/fonts.
    ========================================================================== */
 
 /* latin-ext */

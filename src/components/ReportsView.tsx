@@ -95,7 +95,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           Relatório clínico ampliado
         </h1>
         <p className="text-base" style={{ color: 'var(--text-secondary)' }}>
-          Faça registros diários ou episódios para gerar o relatório longitudinal em PDF ou exportar em CSV para seu psiquiatra ou psicólogo.
+          Faça registros diários ou de comportamento para gerar o relatório longitudinal em PDF ou exportar em CSV para seu psiquiatra ou psicólogo.
         </p>
         <button
           type="button"
@@ -336,8 +336,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               Pré-visualização: Relatório Clínico Longitudinal PulseTrack
             </h2>
             <p className="text-sm font-mono tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-              {period === 'all' ? 'Todo o histórico' : `Últimos ${period} dias`} · {analytics.totalCheckinsOnly} check-ins +{' '}
-              {analytics.totalEpisodes} episódios · {analytics.daysLogged} dia(s) acompanhados
+              {period === 'all' ? 'Todo o histórico' : `Últimos ${period} dias`} ·{' '}
+              {analytics.totalEntries} registro(s) · {analytics.totalEpisodes} com ação realizada ·{' '}
+              {analytics.totalImpulseOnlyEntries} só com impulso · {analytics.daysLogged} dia(s)
+              acompanhados
               {reportLabel.trim() ? ` · ${reportLabel.trim()}` : ''}
             </p>
           </header>
@@ -353,8 +355,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 {analytics.avgSleepHours !== null ? `${analytics.avgSleepHours}h/noite` : 'não informado'}
               </strong>
               , com redução da necessidade de sono em{' '}
-              <strong className="font-mono tabular-nums">{analytics.reducedSleepNeedRate}%</strong> dos registros que
-              responderam ({analytics.reducedSleepNeedCount}x). Energia média de{' '}
+              <strong className="font-mono tabular-nums">
+                {analytics.reducedSleepNeedBase >= 5
+                  ? `${analytics.reducedSleepNeedRate}%`
+                  : `${analytics.reducedSleepNeedCount} de ${analytics.reducedSleepNeedBase}`}
+              </strong>{' '}
+              dos registros que responderam. Energia média de{' '}
               <strong className="font-mono tabular-nums">
                 {analytics.avgEnergy !== null ? `${analytics.avgEnergy}/10` : 'não informada'}
               </strong>{' '}
@@ -363,7 +369,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 {analytics.avgValence !== null ? `${analytics.avgValence}/10` : 'não informada'}
               </strong>
               . Oscilação de humor percebida em{' '}
-              <strong className="font-mono tabular-nums">{bi.moodSwingPercent}%</strong> dos dias.
+              <strong className="font-mono tabular-nums">
+                {analytics.totalEntries >= 5
+                  ? `${bi.moodSwingPercent}%`
+                  : `${bi.moodSwingEntries} de ${analytics.totalEntries}`}
+              </strong>{' '}
+              dos registros.
               <span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
                 Campos não respondidos aparecem como “não informado” — nenhuma média usa valor presumido.
               </span>
@@ -389,7 +400,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </h3>
             {cy.analyzedEpisodes === 0 ? (
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Sem episódios comportamentais neste período.
+                Sem episódios com ação realizada neste período. Impulsos contidos, quando houver, aparecem na seção de comportamentos.
               </p>
             ) : (
               <div className="space-y-1.5 text-sm sm:text-base" style={{ color: 'var(--text-secondary)' }}>
@@ -397,13 +408,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   <strong style={{ color: 'var(--text-primary)' }}>Antes (D-2 a D-1, {cy.before.sampleDays}d):</strong>{' '}
                   Energia {cy.before.avgEnergy !== null ? `${cy.before.avgEnergy}/10` : '-'} · Sono{' '}
                   {cy.before.avgSleepHours !== null ? `${cy.before.avgSleepHours}h` : '-'} · Redução necessidade sono{' '}
-                  {cy.before.reducedSleepNeedRate}%
+                  {cy.before.sampleDays >= 5
+                    ? `${cy.before.reducedSleepNeedRate}%`
+                    : 'amostra insuficiente'}
                 </p>
                 <p>
                   <strong style={{ color: 'var(--text-primary)' }}>Durante ({cy.during.sampleDays}d):</strong>{' '}
                   Energia {cy.during.avgEnergy !== null ? `${cy.during.avgEnergy}/10` : '-'} · Sono{' '}
                   {cy.during.avgSleepHours !== null ? `${cy.during.avgSleepHours}h` : '-'} · Redução necessidade sono{' '}
-                  {cy.during.reducedSleepNeedRate}%
+                  {cy.during.sampleDays >= 5
+                    ? `${cy.during.reducedSleepNeedRate}%`
+                    : 'amostra insuficiente'}
                 </p>
                 <p>
                   <strong style={{ color: 'var(--text-primary)' }}>Depois (D+1 a D+2, {cy.after.sampleDays}d):</strong>{' '}
@@ -422,13 +437,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </h3>
             <ul className="space-y-1.5 text-sm sm:text-base list-disc pl-5" style={{ color: 'var(--text-secondary)' }}>
               <li>
-                <strong>Alta energia / euforia:</strong> {bi.highEnergyEpisodes} de {analytics.totalEpisodes} episódio(s) ({bi.highEnergyPercent}%), vontade média {bi.highEnergyAvgUrge}/10.
+                <strong>Ação x impulso:</strong> {analytics.behaviorModes.feitos} item(ns) realizado(s) em {analytics.behaviorModes.registrosComAcao} registro(s); {analytics.behaviorModes.impulsos} impulso(s) em {analytics.behaviorModes.registrosComImpulso} registro(s), dos quais {analytics.behaviorModes.registrosComImpulsoSemAcao} sem nenhuma ação.
               </li>
               <li>
-                <strong>Baixa energia / tristeza / apatia:</strong> {bi.lowEnergyReliefEpisodes} episódio(s) ({bi.lowEnergyPercent}%), sendo {bi.lowEnergyAutomaticRate}% automáticos/mistos.
+                <strong>Prejuízo/sofrimento relatado:</strong> {analytics.behaviorModes.comPrejuizo} item(ns) em {analytics.behaviorModes.registrosComPrejuizo} registro(s). Nunca inferido pela existência da ação.
+              </li>
+              {analytics.behaviorModes.registrosComClassificacaoDesconhecida > 0 && (
+                <li>
+                  <strong>Sem classificação:</strong> {analytics.behaviorModes.registrosComClassificacaoDesconhecida} registro(s) antigo(s) não distinguem ação de impulso e ficam fora dessas contagens.
+                </li>
+              )}
+              <li>
+                <strong>Alta energia / euforia:</strong> {bi.highEnergyEpisodes} de {analytics.totalEpisodes} episódio(s) com ação ({analytics.totalEpisodes >= 5 ? `${bi.highEnergyPercent}%` : 'amostra insuficiente para percentual'}), vontade média {bi.highEnergyAvgUrge}/10.
               </li>
               <li>
-                <strong>Impacto funcional moderado/intenso:</strong> presente em {fi.anySignificantImpactRate}% dos registros (Trabalho {fi.workModerateOrHigh}x · Relacionamentos {fi.relationshipsModerateOrHigh}x · Rotina {fi.routineModerateOrHigh}x).
+                <strong>Baixa energia / tristeza / apatia:</strong> {bi.lowEnergyReliefEpisodes} episódio(s) ({analytics.totalEpisodes >= 5 ? `${bi.lowEnergyPercent}%` : 'amostra insuficiente para percentual'}), sendo {bi.lowEnergyReliefEpisodes >= 5 ? `${bi.lowEnergyAutomaticRate}% automáticos/mistos` : 'modo automático/misto com amostra insuficiente'}.
+              </li>
+              <li>
+                <strong>Impacto funcional moderado/intenso:</strong> presente em {analytics.totalEntries >= 5 ? `${fi.anySignificantImpactRate}%` : 'amostra insuficiente para percentual'} dos registros (Trabalho {fi.workModerateOrHigh}x · Relacionamentos {fi.relationshipsModerateOrHigh}x · Rotina {fi.routineModerateOrHigh}x).
               </li>
             </ul>
           </section>

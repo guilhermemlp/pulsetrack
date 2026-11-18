@@ -67,7 +67,7 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
           Insights automáticos
         </h1>
         <p className="text-base" style={{ color: 'var(--text-secondary)' }}>
-          Com registros contínuos de humor, sono e episódios, o PulseTrack organiza padrões longitudinais para apoiar suas conversas com o psiquiatra ou psicólogo.
+          Com registros contínuos de humor, sono e comportamentos, o PulseTrack organiza padrões longitudinais para apoiar suas conversas com o psiquiatra ou psicólogo.
         </p>
         <button
           type="button"

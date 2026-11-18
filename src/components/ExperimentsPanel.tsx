@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Experiment, ExperimentResult, PulseEntry } from '../types/pulsetrack';
+import { Dialog } from './Dialog';
 import {
   analyzeExperiment,
   EXPERIMENT_RESULT_LABELS,
@@ -47,6 +48,7 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
   const [closingId, setClosingId] = useState<string | null>(null);
   const [result, setResult] = useState<ExperimentResult | null>(null);
   const [note, setNote] = useState('');
+  const firstResultRef = useRef<HTMLInputElement>(null);
 
   if (experiments.length === 0) return null;
 
@@ -203,12 +205,13 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
       )}
 
       {closing && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="experiment-close-title"
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-          style={{ backgroundColor: 'rgba(15, 23, 32, 0.55)' }}
+        <Dialog
+          labelledBy="experiment-close-title"
+          describedBy="experiment-close-description"
+          onClose={() => setClosingId(null)}
+          // Com uma leitura ou nota já escolhida, Escape não descarta a seleção.
+          closeOnEscape={!result && note.trim().length === 0}
+          initialFocusRef={firstResultRef}
         >
           <div
             className="w-full max-w-xl rounded-2xl border p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto"
@@ -218,7 +221,11 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
               <h3 id="experiment-close-title" className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
                 Como você lê esta observação?
               </h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <p
+                id="experiment-close-description"
+                className="text-sm"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 {closing.hypothesis}
               </p>
             </div>
@@ -227,7 +234,7 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
               <legend className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                 Conclusão
               </legend>
-              {RESULT_OPTIONS.map((option) => (
+              {RESULT_OPTIONS.map((option, index) => (
                 <label
                   key={option.id}
                   className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer"
@@ -239,6 +246,7 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
                   }}
                 >
                   <input
+                    ref={index === 0 ? firstResultRef : undefined}
                     type="radio"
                     name="experiment-result"
                     value={option.id}
@@ -301,7 +309,7 @@ export const ExperimentsPanel: React.FC<ExperimentsPanelProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
     </section>
   );

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Experiment, ExperimentMetric } from '../types/pulsetrack';
+import { Dialog } from './Dialog';
 import { createExperiment, EXPERIMENT_METRICS } from '../utils/experiments';
 import { toLocalIsoDate } from '../utils/analytics';
 
@@ -38,6 +39,7 @@ export const ExperimentComposer: React.FC<ExperimentComposerProps> = ({
   const [endDate, setEndDate] = useState(dateOffset(14));
   const [tag, setTag] = useState('');
   const [error, setError] = useState('');
+  const hypothesisRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -63,12 +65,13 @@ export const ExperimentComposer: React.FC<ExperimentComposerProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="experiment-composer-title"
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(15, 23, 32, 0.55)' }}
+    <Dialog
+      labelledBy="experiment-composer-title"
+      describedBy="experiment-composer-description"
+      onClose={onCancel}
+      // Escape não descarta o texto digitado sem confirmação.
+      closeOnEscape={false}
+      initialFocusRef={hypothesisRef}
     >
       <form
         onSubmit={handleSubmit}
@@ -79,7 +82,11 @@ export const ExperimentComposer: React.FC<ExperimentComposerProps> = ({
           <h2 id="experiment-composer-title" className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Investigar isso
           </h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <p
+            id="experiment-composer-description"
+            className="text-sm"
+            style={{ color: 'var(--text-secondary)' }}
+          >
             Uma observação pessoal com começo e fim: o app compara a janela com o mesmo número de
             dias imediatamente anterior. Isso não é um teste diagnóstico.
           </p>
@@ -90,6 +97,7 @@ export const ExperimentComposer: React.FC<ExperimentComposerProps> = ({
             O que você quer observar?
           </label>
           <textarea
+            ref={hypothesisRef}
             id="experiment-hypothesis"
             value={hypothesis}
             onChange={(event) => {
@@ -194,6 +202,6 @@ export const ExperimentComposer: React.FC<ExperimentComposerProps> = ({
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 };

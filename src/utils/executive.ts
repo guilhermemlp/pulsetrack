@@ -43,16 +43,19 @@ function periodStart(period: PeriodFilter): string | null {
  */
 export function buildDominantPattern(analytics: AnalyticsSummary): ExecutivePattern {
   const topCategory = analytics.categoryStats[0];
-  if (topCategory && analytics.totalEpisodes >= 3) {
+  if (topCategory && topCategory.realizedCount > 0 && analytics.totalEpisodes >= 3) {
     const topItem = topCategory.topItems[0];
     return {
-      title: `Comportamento mais registrado: ${topCategory.categoryName}`,
+      title: `Comportamento com mais ações realizadas: ${topCategory.categoryName}`,
       detail:
-        `${topCategory.count} de ${analytics.totalEpisodes} episódio(s) do período (${topCategory.percentage}%)` +
+        `${topCategory.realizedCount} de ${analytics.totalEpisodes} episódio(s) com ação no período` +
         (topItem ? `, com "${topItem.label}" aparecendo ${topItem.count}x.` : '.') +
-        ` Vontade média nesses episódios: ${
+        ` Vontade média nesses registros: ${
           topCategory.avgUrge !== null ? `${topCategory.avgUrge}/10` : 'não informada'
-        }.`,
+        }.` +
+        (topCategory.impulseCount > 0
+          ? ` A categoria também apareceu como impulso em ${topCategory.impulseCount} registro(s), sem contar como ação.`
+          : ''),
     };
   }
 
@@ -63,7 +66,9 @@ export function buildDominantPattern(analytics: AnalyticsSummary): ExecutivePatt
       detail:
         `Presente em ${topMood.count} registro(s) do período` +
         (topMood.episodeCount > 0
-          ? `, com episódio em ${topMood.episodeCount} deles (${topMood.episodeRate}%).`
+          ? `, com episódio em ${topMood.episodeCount} deles${
+              topMood.count >= 5 ? ` (${topMood.episodeRate}%)` : ''
+            }.`
           : ', sem episódios associados no período.') +
         ` Energia média ${topMood.avgEnergy !== null ? `${topMood.avgEnergy}/10` : 'não informada'}.`,
     };
@@ -73,7 +78,9 @@ export function buildDominantPattern(analytics: AnalyticsSummary): ExecutivePatt
   if (topSignal && topSignal.count > 0) {
     return {
       title: `Sinal de ativação mais presente: ${topSignal.label}`,
-      detail: `${topSignal.count} registro(s) do período (${topSignal.percentage}%).`,
+      detail: `${topSignal.count} registro(s) do período${
+        topSignal.count >= 5 ? ` (${topSignal.percentage}%)` : ''
+      }.`,
     };
   }
 

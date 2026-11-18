@@ -1,12 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ShieldCheck, Sparkles } from 'lucide-react';
-import { FOCUS_AREA_OPTIONS, PROFILE_HINT_OPTIONS } from '../data/defaults';
+import { FOCUS_AREA_OPTIONS } from '../data/defaults';
 import { CATEGORY_PACKAGES } from '../data/packages';
 import {
   FocusArea,
   OnboardingProgress,
   PackageId,
-  ProfileHint,
   RecordLevel,
   ThemeMode,
   UserPreferences,
@@ -25,7 +24,6 @@ interface OnboardingProps {
 
 const STEP_TITLES = [
   'O que você quer observar?',
-  'Como você se descreve?',
   'Pacotes de categorias',
   'Ritmo e conforto',
 ] as const;
@@ -51,12 +49,12 @@ const chipStyle = (active: boolean): React.CSSProperties => ({
 });
 
 /**
- * Onboarding em 4 telas, com salvamento a cada passo.
+ * Onboarding em 3 telas, com persistência incremental.
  *
- * Cada tela grava o que foi respondido ANTES de avançar; por isso fechar a aba no meio
- * não perde nada e a próxima abertura retoma na mesma tela. Pular é uma resposta válida
- * (a etapa entra em `skippedSteps` e não volta sozinha). Nada aqui é diagnóstico:
- * as escolhas só ajustam o que o app mostra primeiro.
+ * Áreas de foco são salvas no clique; pacotes são aplicados no clique; ritmo e conforto
+ * são salvos na própria alteração. Assim, fechar a aba não apaga uma escolha já feita.
+ * Pular é uma resposta válida (a etapa entra em `skippedSteps`) e retomada usa a etapa
+ * persistida. Nada aqui é diagnóstico: as escolhas só mudam o destaque e os atalhos.
  */
 export const Onboarding: React.FC<OnboardingProps> = ({
   progress,
@@ -69,31 +67,44 @@ export const Onboarding: React.FC<OnboardingProps> = ({
 }) => {
   const [step, setStep] = useState(() => Math.min(TOTAL_STEPS - 1, Math.max(0, progress.step)));
   const [focusAreas, setFocusAreas] = useState<FocusArea[]>(preferences.focusAreas);
-  const [profileHint, setProfileHint] = useState<ProfileHint | null>(preferences.profileHint);
-  const [selectedPackages, setSelectedPackages] = useState<PackageId[]>([]);
+  const [appliedPackageIds, setAppliedPackageIds] = useState<PackageId[]>([]);
+  /** Snapshot: um pacote aplicado sai de `availablePackageIds`, mas continua visível aqui. */
+  const [offeredPackageIds] = useState<PackageId[]>(availablePackageIds);
+  const initializedRef = useRef(false);
 
-  // Marca a retomada no primeiro render da tela atual.
+  // Marca o início apenas uma vez; a partir daí cada navegação grava sua própria etapa.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     onSaveProgress({
       ...progress,
+      version: 2,
       status: 'in_progress',
       step,
       lastSeenAt: new Date().toISOString(),
     });
-    // Só a troca de tela deve gravar a retomada.
-  }, [step]);
+    // A retomada é inicial; não deve reagir a cada mudança de etapa e sobrescrever pulos.
+  }, []);
 
   const offeredPackages = useMemo(
-    () => CATEGORY_PACKAGES.filter((pkg) => availablePackageIds.includes(pkg.id)),
-    [availablePackageIds]
+    () => CATEGORY_PACKAGES.filter((pkg) => offeredPackageIds.includes(pkg.id)),
+    [offeredPackageIds]
   );
 
   const toggleArea = (area: FocusArea) => {
-    setFocusAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
+    const next = focusAreas.includes(area)
+      ? focusAreas.filter((a) => a !== area)
+      : [...focusAreas, area];
+    setFocusAreas(next);
+    // Persistência incremental: não depende de clicar em Continuar.
+    onChangePreferences({ focusAreas: next });
   };
 
-  const togglePackage = (id: PackageId) => {
-    setSelectedPackages((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+  const applyPackage = (id: PackageId) => {
+    if (appliedPackageIds.includes(id)) return;
+    setAppliedPackageIds((prev) => [...prev, id]);
+    // O pacote entra no catálogo na hora, sem duplicar categorias ou itens existentes.
+    onApplyPackages([id]);
   };
 
   const recordStep = (target: number, skipped: boolean) => {
@@ -102,6 +113,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
       : progress.skippedSteps.filter((s) => s !== step);
     onSaveProgress({
       ...progress,
+      version: 2,
       status: 'in_progress',
       step: target,
       skippedSteps,
@@ -109,22 +121,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({
     });
   };
 
-  /** Grava a tela atual; `null` quando a pessoa pulou (nada é inventado). */
-  const saveCurrentStep = () => {
-    if (step === 0) {
-      onChangePreferences({ focusAreas });
-    } else if (step === 1) {
-      onChangePreferences({ profileHint });
-    } else if (step === 2) {
-      if (selectedPackages.length > 0) onApplyPackages(selectedPackages);
-    }
-  };
-
   const goNext = () => {
-    saveCurrentStep();
     if (step === TOTAL_STEPS - 1) {
       onSaveProgress({
         ...progress,
+        version: 2,
         status: 'completed',
         step: TOTAL_STEPS - 1,
         completedAt: new Date().toISOString(),
@@ -142,6 +143,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
     if (step === TOTAL_STEPS - 1) {
       onSaveProgress({
         ...progress,
+        version: 2,
         status: 'completed',
         step: TOTAL_STEPS - 1,
         skippedSteps: Array.from(new Set([...progress.skippedSteps, step])).sort(),
@@ -157,9 +159,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({
   const skipAll = () => {
     onSaveProgress({
       ...progress,
+      version: 2,
       status: 'completed',
       step: 0,
-      skippedSteps: [0, 1, 2, 3],
+      skippedSteps: [0, 1, 2],
       completedAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
     });
@@ -235,8 +238,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({
         {step === 0 && (
           <>
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
-              Escolha quantas áreas quiser. Isso só define o que aparece primeiro — não restringe
-              nem fecha nenhum pilar, e pode mudar depois em Categorias.
+              Escolha quantas áreas quiser. Elas aparecem em destaque no início do registro, mas
+              não escondem nenhum pilar — e podem mudar depois em Categorias.
             </p>
             <ul className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {FOCUS_AREA_OPTIONS.map((option) => {
@@ -273,47 +276,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({
         {step === 1 && (
           <>
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
-              Opcional. Essa resposta fica só neste dispositivo e serve apenas como rascunho
-              interno para ajustar a linguagem do app. Ela <strong>não</strong> é diagnóstico, não
-              aparece em relatórios e não é enviada a ninguém.
-            </p>
-            <ul className="mt-5 grid grid-cols-1 gap-2.5">
-              {PROFILE_HINT_OPTIONS.map((option) => {
-                const active = profileHint === option.id;
-                return (
-                  <li key={option.id}>
-                    <button
-                      type="button"
-                      onClick={() => setProfileHint(option.id)}
-                      aria-pressed={active}
-                      className="w-full min-h-[52px] px-4 rounded-xl border text-left text-sm font-medium flex items-center justify-between gap-3 cursor-pointer"
-                      style={chipStyle(active)}
-                    >
-                      {option.label}
-                      {active && <Check className="w-4 h-4 shrink-0" aria-hidden="true" />}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {profileHint && (
-              <button
-                type="button"
-                onClick={() => setProfileHint(null)}
-                className="mt-3 min-h-[44px] px-3 rounded-lg text-sm underline cursor-pointer"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                Limpar resposta
-              </button>
-            )}
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
-              Pacotes são atalhos: eles ativam itens que já existem no catálogo, sem criar
-              categoria nova nem mudar registros antigos. Você pode marcar mais de um.
+              Pacotes são atalhos: ao tocar, eles ativam itens que já existem no catálogo, sem criar
+              categoria nova nem mudar registros antigos. Você pode aplicar mais de um agora e
+              ajustar tudo depois em Categorias.
             </p>
             {offeredPackages.length === 0 ? (
               <div className="mt-5 rounded-xl border p-4 text-sm" style={cardStyle}>
@@ -322,12 +287,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({
             ) : (
               <ul className="mt-5 space-y-2.5">
                 {offeredPackages.map((pkg) => {
-                  const active = selectedPackages.includes(pkg.id);
+                  const active = appliedPackageIds.includes(pkg.id);
                   return (
                     <li key={pkg.id}>
                       <button
                         type="button"
-                        onClick={() => togglePackage(pkg.id)}
+                        onClick={() => applyPackage(pkg.id)}
                         aria-pressed={active}
                         className="w-full min-h-[64px] p-3.5 rounded-xl border text-left cursor-pointer"
                         style={chipStyle(active)}
@@ -346,15 +311,16 @@ export const Onboarding: React.FC<OnboardingProps> = ({
               </ul>
             )}
             <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-              Pacotes já adicionados não voltam a ser oferecidos.
+              A aplicação é imediata. Pacotes já adicionados não voltam a ser oferecidos.
             </p>
           </>
         )}
 
-        {step === 3 && (
+        {step === 2 && (
           <>
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
-              Ajustes de ritmo e conforto. Tudo pode ser alterado depois na aba Categorias.
+              Ajustes de ritmo e conforto. Tema e movimento ficam no topo do app; a profundidade
+              também pode ser alterada depois na aba Categorias.
             </p>
 
             <div className="mt-5 space-y-5">
@@ -433,43 +399,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({
                 <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                   Remove animações de transição e rolagem suave.
                 </p>
-              </div>
-
-              <div className="rounded-xl border p-4" style={cardStyle}>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={preferences.reminderOptIn}
-                    onChange={(e) => onChangePreferences({ reminderOptIn: e.target.checked })}
-                    className="mt-1 w-5 h-5 shrink-0"
-                  />
-                  <span>
-                    <span className="block text-sm font-semibold">Quero um lembrete diário</span>
-                    <span className="block text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                      Opcional. Guardamos horário e preferência neste dispositivo; o PulseTrack não
-                      envia notificações automáticas.
-                    </span>
-                  </span>
-                </label>
-                {preferences.reminderOptIn && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <label htmlFor="reminder-time" className="text-xs font-medium">
-                      Horário
-                    </label>
-                    <input
-                      id="reminder-time"
-                      type="time"
-                      value={preferences.reminderTime}
-                      onChange={(e) => onChangePreferences({ reminderTime: e.target.value })}
-                      className="min-h-[44px] px-3 rounded-lg border text-sm font-mono tabular-nums"
-                      style={{
-                        backgroundColor: 'var(--bg-elevated)',
-                        borderColor: 'var(--border-strong)',
-                        color: 'var(--text-primary)',
-                      }}
-                    />
-                  </div>
-                )}
               </div>
             </div>
           </>

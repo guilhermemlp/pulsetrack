@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { EntryType, MoodStateId, PulseEntry, ThemeMode } from '../types/pulsetrack';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BehaviorMode, EntryType, MoodStateId, PulseEntry, ThemeMode } from '../types/pulsetrack';
 import {
+  applyBackup,
   buildBackupJson,
   loadCategories,
   loadEntries,
@@ -10,6 +11,7 @@ import {
   saveCategories,
   saveEntries,
   savePreferences,
+  validateBackupJson,
 } from './storage';
 
 const ENTRY_KEY = 'pulsetrack_entries_v1';
@@ -60,6 +62,21 @@ describe('normalizeEntry', () => {
     });
 
     expect(entry.entryType).toBe(EntryType.EPISODE);
+  });
+
+  it('não converte modo ausente em ação realizada', () => {
+    const entry = normalizeEntry({
+      behaviors: [
+        {
+          categoryId: 'cat_financeira',
+          categoryName: 'Financeira',
+          itemId: 'fin_compras',
+          itemLabel: 'Compras impulsivas',
+        },
+      ] as PulseEntry['behaviors'],
+    });
+
+    expect(entry.behaviors[0]?.mode).toBe(BehaviorMode.DESCONHECIDO);
   });
 
   it('preserva os dados existentes', () => {
@@ -133,6 +150,18 @@ describe('persistência em localStorage', () => {
     expect(prefs.reduceMotion).toBe(true);
     expect(prefs.focusModeDefault).toBe(false);
   });
+
+  it('carrega preferências antigas de lembrete como inativas', () => {
+    localStorage.setItem(
+      'pulsetrack_preferences_v1',
+      JSON.stringify({ reminderOptIn: true, reminderTime: '21:30' })
+    );
+
+    const prefs = loadPreferences();
+
+    expect(prefs.reminderOptIn).toBe(false);
+    expect(prefs.reminderTime).toBe('21:30');
+  });
 });
 
 describe('backup', () => {
@@ -171,6 +200,122 @@ describe('backup', () => {
 
   it('recusa backup sem as listas obrigatórias', () => {
     expect(parseBackupJson(JSON.stringify({ app: 'PulseTrack', entries: [] }))).toBeNull();
+  });
+
+  it('explica por que um arquivo foi recusado sem alterar o estado', () => {
+    expect(validateBackupJson('{nao-e-json').error).toBe('invalid_json');
+    expect(validateBackupJson(JSON.stringify({ app: 'OutroApp' })).error).toBe('not_pulsetrack');
+    expect(
+      validateBackupJson(JSON.stringify({ app: 'PulseTrack', version: 2 })).error
+    ).toBe('missing_data');
+    expect(
+      validateBackupJson(
+        JSON.stringify({ app: 'PulseTrack', version: 4, entries: [], categories: [] })
+      ).error
+    ).toBe('unsupported_version');
+    expect(
+      validateBackupJson(
+        JSON.stringify({ app: 'PulseTrack', version: 3, entries: [{}], categories: [] })
+      ).error
+    ).toBe('invalid_data');
+    expect(
+      validateBackupJson(
+        JSON.stringify({
+          app: 'PulseTrack',
+          version: 3,
+          entries: [],
+          categories: [{ id: 'cat', name: 'Categoria', items: [{ id: 'x', label: '' }] }],
+        })
+      ).error
+    ).toBe('invalid_data');
+    expect(
+      validateBackupJson(
+        JSON.stringify({
+          app: 'PulseTrack',
+          version: 3,
+          entries: [],
+          categories: [],
+          experiments: [{ id: 'incompleto' }],
+        })
+      ).error
+    ).toBe('invalid_data');
+  });
+
+  it('normaliza preferências inesperadas em vez de propagar valores inválidos', () => {
+    const restored = validateBackupJson(
+      JSON.stringify({
+        app: 'PulseTrack',
+        version: 3,
+        entries: [],
+        categories: [],
+        preferences: { theme: 'invalido', defaultRecordLevel: 'profundo', focusAreas: ['x'] },
+      })
+    ).backup;
+
+    expect(restored?.preferences.theme).toBe(ThemeMode.LIGHT);
+    expect(restored?.preferences.defaultRecordLevel).toBe('rapido');
+    expect(restored?.preferences.focusAreas).toEqual([]);
+  });
+});
+
+describe('aplicação atômica do backup', () => {
+  const atomicEntry = normalizeEntry({ id: 'atomico', date: '2026-06-01' });
+
+  it('grava registros, categorias, preferências e experimentos de uma vez', () => {
+    const prefs = loadPreferences();
+    const backup = parseBackupJson(
+      buildBackupJson([atomicEntry], loadCategories(), prefs, [])
+    );
+
+    expect(applyBackup(backup!)).toBe(true);
+    expect(loadEntries()).toEqual([atomicEntry]);
+    expect(loadPreferences()).toEqual(prefs);
+    expect(JSON.parse(localStorage.getItem('pulsetrack_categories_v1') ?? '')).toHaveProperty(
+      'schemaVersion',
+      2
+    );
+  });
+
+  it('preserva catálogo vazio de um backup em vez de recriar os padrões', () => {
+    const backup = parseBackupJson(
+      buildBackupJson([atomicEntry], [], loadPreferences(), [])
+    );
+
+    expect(applyBackup(backup!)).toBe(true);
+    expect(loadCategories()).toEqual([]);
+  });
+
+  it('restaura os dados anteriores quando uma escrita falha no meio', () => {
+    const oldEntry = normalizeEntry({ id: 'antigo', date: '2026-01-01' });
+    saveEntries([oldEntry]);
+    saveCategories(loadCategories());
+    savePreferences(loadPreferences());
+    const entriesBefore = localStorage.getItem('pulsetrack_entries_v1');
+    const categoriesBefore = localStorage.getItem('pulsetrack_categories_v1');
+
+    const backup = parseBackupJson(
+      buildBackupJson(
+        [normalizeEntry({ id: 'novo', date: '2026-05-01' })],
+        loadCategories(),
+        loadPreferences()
+      )
+    );
+    const originalSetItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value
+    ) {
+      if (key === 'pulsetrack_categories_v1') throw new Error('quota');
+      originalSetItem.call(this, key, value);
+    });
+
+    expect(applyBackup(backup!)).toBe(false);
+    spy.mockRestore();
+
+    expect(localStorage.getItem('pulsetrack_entries_v1')).toBe(entriesBefore);
+    expect(localStorage.getItem('pulsetrack_categories_v1')).toBe(categoriesBefore);
+    expect(loadEntries()).toEqual([oldEntry]);
   });
 });
 

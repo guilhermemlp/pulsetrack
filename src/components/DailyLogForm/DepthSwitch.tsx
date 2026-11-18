@@ -81,7 +81,7 @@ export const DepthSwitch: React.FC<DepthSwitchProps> = React.memo(
                 }}
                 aria-pressed={active}
                 aria-disabled={disabled || undefined}
-                title={disabled ? 'Episódios precisam do nível Padrão ou Completo' : opt.hint}
+                title={disabled ? 'Registros de comportamento precisam do nível Padrão ou Completo' : opt.hint}
                 className={`min-h-[44px] px-2 py-1.5 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-1.5 border transition-colors ${
                   disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer'
                 }`}

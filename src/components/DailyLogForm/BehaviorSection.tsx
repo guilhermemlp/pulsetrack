@@ -440,7 +440,7 @@ export const BehaviorSection: React.FC<BehaviorSectionProps> = React.memo(
                 color: 'var(--color-primary-strong)',
               }}
             >
-              Registrar episódio
+              Registrar comportamento
             </button>
           </div>
         </section>
@@ -459,7 +459,7 @@ export const BehaviorSection: React.FC<BehaviorSectionProps> = React.memo(
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Pilar 3 · Comportamento: sem episódio compulsivo neste registro
+                Pilar 3 · Comportamento: nenhum comportamento registrado neste check-in
               </p>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 Ótimo — registrar dias tranquilos é essencial para comparar sono e humor ao longo do
@@ -576,7 +576,7 @@ export const BehaviorSection: React.FC<BehaviorSectionProps> = React.memo(
                   <button
                     type="button"
                     onClick={() => onRemoveBehavior(b.itemId)}
-                    className="min-h-[40px] px-2.5 rounded-lg border text-xs font-medium cursor-pointer"
+                    className="min-h-[44px] px-2.5 rounded-lg border text-xs font-medium cursor-pointer"
                     style={{
                       backgroundColor:
                         b.mode === BehaviorMode.IMPULSO
@@ -588,9 +588,9 @@ export const BehaviorSection: React.FC<BehaviorSectionProps> = React.memo(
                           : 'var(--color-primary-strong)',
                       color: 'var(--text-primary)',
                     }}
-                    aria-label={`Remover ${b.itemLabel} (${b.mode === BehaviorMode.IMPULSO ? 'impulso' : 'fiz'})`}
+                    aria-label={`Remover ${b.itemLabel} (${describeBehaviorMode(b.mode)})`}
                   >
-                    {b.itemLabel} · {b.mode === BehaviorMode.IMPULSO ? 'impulso' : 'fiz'}
+                    {b.itemLabel} · {describeBehaviorMode(b.mode)}
                     {b.harm ? ' · prejuízo' : ''}
                   </button>
                 </li>
@@ -825,6 +825,10 @@ export const BehaviorSection: React.FC<BehaviorSectionProps> = React.memo(
             >
               Outro comportamento (campo livre)
             </label>
+            <p className="text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              O texto livre não define se foi ação ou impulso. Para entrar nos indicadores,
+              escolha um item do catálogo e marque "Só o impulso" ou "Fiz".
+            </p>
             <input
               id="behavior-other"
               type="text"

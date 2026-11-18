@@ -25,6 +25,25 @@ describe('progresso do onboarding', () => {
     expect(progress.skippedSteps).toEqual([0]);
   });
 
+  it('migra o progresso antigo de 4 telas para as 3 telas atuais', () => {
+    localStorage.setItem(
+      'pulsetrack_onboarding_v1',
+      JSON.stringify({
+        status: 'in_progress',
+        step: 3,
+        skippedSteps: [1, 2, 3],
+        completedAt: null,
+        lastSeenAt: '2026-11-17T10:00:00.000Z',
+      })
+    );
+
+    const progress = loadOnboardingProgress();
+
+    expect(progress.version).toBe(2);
+    expect(progress.step).toBe(2);
+    expect(progress.skippedSteps).toEqual([1, 2]);
+  });
+
   it('concluído permanece concluído (não reabre sozinho)', () => {
     saveOnboardingProgress({
       status: 'completed',
