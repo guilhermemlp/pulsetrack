@@ -123,6 +123,87 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-8">
       {draftCard}
 
+      {/* Saudação e acesso rápido, conforme conceito visual do redesign */}
+      <section
+        className="rounded-2xl border p-6 sm:p-8 space-y-4"
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderColor: 'var(--border-hairline)',
+          boxShadow: 'var(--shadow-soft)',
+        }}
+      >
+        <div className="space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            Como você está?
+          </h1>
+          <p className="text-base" style={{ color: 'var(--text-secondary)' }}>
+            Um espaço para observar, registrar e compreender seus próprios padrões.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onNavigate('registrar')}
+          className="min-h-[48px] px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer inline-flex items-center gap-2"
+          style={{
+            backgroundColor: 'var(--color-primary-strong)',
+            color: 'var(--color-primary-ink)',
+          }}
+        >
+          ⊕ Novo registro
+        </button>
+      </section>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          {
+            title: 'Humor',
+            subtitle: 'Estado emocional',
+            value: analytics.avgValence !== null ? `${analytics.avgValence}/10` : '—',
+            action: () => onNavigate('analises'),
+          },
+          {
+            title: 'Energia',
+            subtitle: 'Disposição percebida',
+            value: analytics.avgEnergy !== null ? `${analytics.avgEnergy}/10` : '—',
+            action: () => onNavigate('analises'),
+          },
+          {
+            title: 'Comportamentos',
+            subtitle: 'O que aconteceu',
+            value: `${analytics.totalEpisodes}`,
+            action: () => onNavigate('diario'),
+          },
+          {
+            title: 'Padrões',
+            subtitle: 'O que os registros mostram',
+            value: analytics.evolution.label,
+            action: () => onNavigate('analises'),
+          },
+        ].map((card) => (
+          <button
+            key={card.title}
+            type="button"
+            onClick={card.action}
+            className="rounded-2xl border p-5 text-left cursor-pointer"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-hairline)',
+              boxShadow: 'var(--shadow-soft)',
+            }}
+          >
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              {card.title}
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {card.subtitle}
+            </p>
+            <p className="text-2xl font-bold font-mono tabular-nums mt-3" style={{ color: 'var(--text-primary)' }}>
+              {card.value}
+            </p>
+          </button>
+        ))}
+      </div>
+
       {/* Cabeçalho e filtro de período */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
