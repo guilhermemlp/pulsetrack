@@ -18,6 +18,7 @@ import {
   BehaviorCategory,
   BehaviorMode,
   CategoryStat,
+  EntryType,
   MedicationStatus,
   MenstrualPhaseStat,
   SafetyConcern,
@@ -438,9 +439,18 @@ export function summarizeCoverage(
 export function computeAnalytics(
   allEntries: PulseEntry[],
   categories: BehaviorCategory[],
-  period: PeriodFilter
+  period: PeriodFilter,
+  filters?: { categoryIds?: string[]; entryTypes?: EntryType[] }
 ): AnalyticsSummary {
-  const entries = filterEntriesByPeriod(allEntries, period);
+  let entries = filterEntriesByPeriod(allEntries, period);
+  if (filters?.entryTypes?.length) {
+    entries = entries.filter((entry) => filters.entryTypes!.includes(entry.entryType));
+  }
+  if (filters?.categoryIds?.length) {
+    entries = entries.filter((entry) =>
+      entry.behaviors.some((behavior) => filters.categoryIds!.includes(behavior.categoryId))
+    );
+  }
   const itemLookup = buildItemLookup(categories);
   const periodDays = getPeriodDays(period, entries);
   const totalEntries = entries.length;

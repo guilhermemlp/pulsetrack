@@ -81,6 +81,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('registrar');
   const [analysisView, setAnalysisView] = useState<'insights' | 'relatorios'>('insights');
   const [period, setPeriod] = useState<PeriodFilter>('14');
+  /** Filtros compartilhados do ambiente de Análises. */
+  const [analysisCategories, setAnalysisCategories] = useState<string[]>([]);
+  const [analysisEntryTypes, setAnalysisEntryTypes] = useState<EntryType[]>([]);
   const [editingEntry, setEditingEntry] = useState<PulseEntry | null>(null);
   /** Nível em que o registro reabre ao "salvar e completar depois". */
   const [reopenLevel, setReopenLevel] = useState<RecordLevel | null>(null);
@@ -192,11 +195,31 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
-  const filteredEntries = useMemo(() => filterEntriesByPeriod(entries, period), [entries, period]);
   const analytics = useMemo(
     () => computeAnalytics(entries, categories, period),
     [entries, categories, period]
   );
+
+  const analysisFilters = useMemo(
+    () => ({ categoryIds: analysisCategories, entryTypes: analysisEntryTypes }),
+    [analysisCategories, analysisEntryTypes]
+  );
+  const analysisAnalytics = useMemo(
+    () => computeAnalytics(entries, categories, period, analysisFilters),
+    [entries, categories, period, analysisFilters]
+  );
+  const analysisFilteredEntries = useMemo(() => {
+    let base = filterEntriesByPeriod(entries, period);
+    if (analysisEntryTypes.length) {
+      base = base.filter((entry) => analysisEntryTypes.includes(entry.entryType));
+    }
+    if (analysisCategories.length) {
+      base = base.filter((entry) =>
+        entry.behaviors.some((behavior) => analysisCategories.includes(behavior.categoryId))
+      );
+    }
+    return base;
+  }, [entries, period, analysisEntryTypes, analysisCategories]);
 
   const handleNavigate = (tab: AppTab) => {
     setActiveTab(tab);
@@ -818,6 +841,114 @@ export default function App() {
         )}
 
         {activeTab === 'analises' && (
+          <section
+            className="mb-6 rounded-2xl border p-4 sm:p-5 space-y-4"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
+            aria-label="Filtros compartilhados das análises"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Filtros compartilhados
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setAnalysisCategories([]);
+                  setAnalysisEntryTypes([]);
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-lg border text-sm font-medium cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-hairline)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Limpar filtros
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  Categorias de comportamento
+                </legend>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((category) => {
+                    const active = analysisCategories.includes(category.id);
+                    return (
+                      <label
+                        key={category.id}
+                        className="inline-flex items-center gap-2 min-h-[40px] px-3 rounded-lg border cursor-pointer text-sm"
+                        style={{
+                          backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
+                          borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={active}
+                          onChange={() =>
+                            setAnalysisCategories((prev) =>
+                              active
+                                ? prev.filter((id) => id !== category.id)
+                                : [...prev, category.id]
+                            )
+                          }
+                        />
+                        {category.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  Tipo de registro
+                </legend>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: EntryType.DAILY_CHECKIN, label: 'Check-in diário' },
+                      { id: EntryType.EPISODE, label: 'Registro de comportamento' },
+                    ] as const
+                  ).map((type) => {
+                    const active = analysisEntryTypes.includes(type.id);
+                    return (
+                      <label
+                        key={type.id}
+                        className="inline-flex items-center gap-2 min-h-[40px] px-3 rounded-lg border cursor-pointer text-sm"
+                        style={{
+                          backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--bg-elevated)',
+                          borderColor: active ? 'var(--color-primary-strong)' : 'var(--border-hairline)',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={active}
+                          onChange={() =>
+                            setAnalysisEntryTypes((prev) =>
+                              active
+                                ? prev.filter((id) => id !== type.id)
+                                : [...prev, type.id]
+                            )
+                          }
+                        />
+                        {type.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'analises' && (
           <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Subáreas de Análises">
             {[
               { id: 'insights' as const, label: 'Insights e tendências' },
@@ -866,8 +997,8 @@ export default function App() {
 
         {activeTab === 'analises' && analysisView === 'insights' && (
           <InsightsView
-            analytics={analytics}
-            totalAllEntries={entries.length}
+            analytics={analysisAnalytics}
+            totalAllEntries={analysisFilteredEntries.length}
             period={period}
             onChangePeriod={setPeriod}
             onNavigate={handleNavigate}
@@ -942,9 +1073,9 @@ export default function App() {
 
         {activeTab === 'analises' && analysisView === 'relatorios' && (
           <ReportsView
-            filteredEntries={filteredEntries}
-            analytics={analytics}
-            totalAllEntries={entries.length}
+            filteredEntries={analysisFilteredEntries}
+            analytics={analysisAnalytics}
+            totalAllEntries={analysisFilteredEntries.length}
             period={period}
             onChangePeriod={setPeriod}
             reportLabel={preferences.reportLabel}

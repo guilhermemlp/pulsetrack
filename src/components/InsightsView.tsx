@@ -8,6 +8,7 @@ import {
   PeriodFilter,
 } from '../types/pulsetrack';
 import { ExperimentComposer } from './ExperimentComposer';
+import { summarizeCoverage } from '../utils/analytics';
 
 interface InsightsViewProps {
   analytics: AnalyticsSummary;
@@ -257,6 +258,42 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
           </div>
         </>
       )}
+
+      <section
+        className="rounded-2xl border p-4 sm:p-5"
+        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
+      >
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+          Cobertura dos dados
+        </h2>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          {summarizeCoverage(analytics.coverage)
+            .filter((section) => section.base > 0)
+            .map((section) => (
+              <li key={section.id} className="flex items-center justify-between gap-3">
+                <span>{section.label}</span>
+                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                  {section.answered}/{section.base}
+                </span>
+              </li>
+            ))}
+        </ul>
+      </section>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => onNavigate('diario')}
+          className="min-h-[44px] px-4 py-2 rounded-xl border text-sm font-medium cursor-pointer"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-hairline)',
+            color: 'var(--color-primary-strong)',
+          }}
+        >
+          Ver registros originais deste filtro
+        </button>
+      </div>
 
       {composerInsight && (
         <ExperimentComposer

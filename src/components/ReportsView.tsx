@@ -473,6 +473,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </section>
         </article>
       )}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => onNavigate('diario')}
+          className="min-h-[44px] px-4 py-2 rounded-xl border text-sm font-medium cursor-pointer"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-hairline)',
+            color: 'var(--color-primary-strong)',
+          }}
+        >
+          Ver registros originais deste filtro
+        </button>
+      </div>
     </div>
   );
 };
