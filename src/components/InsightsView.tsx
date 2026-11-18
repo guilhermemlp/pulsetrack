@@ -266,6 +266,9 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
         <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
           Cobertura dos dados
         </h2>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          Base analisada: {totalAllEntries} registro(s) no período selecionado. Relações exibidas são exploratórias e não indicam causalidade.
+        </p>
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           {summarizeCoverage(analytics.coverage)
             .filter((section) => section.base > 0)

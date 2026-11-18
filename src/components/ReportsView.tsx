@@ -299,6 +299,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </div>
           </div>
 
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Base analisada: {filteredEntries.length} registro(s). As relações observadas são exploratórias e não indicam causalidade. Nenhum estado é classificado automaticamente como mania, hipomania ou depressão.
+          </p>
+
           <div>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
               Experimentos observados
