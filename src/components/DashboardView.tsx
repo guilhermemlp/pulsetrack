@@ -9,6 +9,7 @@ import {
   ThemeMode,
 } from '../types/pulsetrack';
 import { FormDraft } from '../utils/storage';
+import { summarizeCoverage } from '../utils/analytics';
 import { DashboardCharts } from './Charts';
 import { DraftResumeCard } from './DraftResumeCard';
 import { ExperimentsPanel } from './ExperimentsPanel';
@@ -499,6 +500,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Gráficos visuais limpos (incluindo Linha do Tempo Conjunta) */}
           <DashboardCharts analytics={analytics} theme={theme} />
+
+          <section
+            className="rounded-2xl border p-4 sm:p-5"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
+          >
+            <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+              Cobertura dos dados
+            </h2>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Base analisada: {totalAllEntries} registro(s). Relações exibidas são exploratórias.
+            </p>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {summarizeCoverage(analytics.coverage)
+                .filter((section) => section.base > 0)
+                .map((section) => (
+                  <li key={section.id} className="flex items-center justify-between gap-3">
+                    <span>{section.label}</span>
+                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {section.answered}/{section.base}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </section>
 
           {/* Polaridade de energia e oscilações de humor */}
           <section aria-labelledby="bipolar-spotlight-title" className="space-y-4">
