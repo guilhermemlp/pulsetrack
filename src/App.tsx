@@ -609,7 +609,15 @@ export default function App() {
               borderColor: 'var(--border-hairline)',
             }}
           >
-            <nav className="flex flex-col gap-1 p-3">
+            <div className="px-4 py-4 border-b" style={{ borderColor: 'var(--border-hairline)' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                PulseTrack
+              </p>
+              <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                Observação pessoal
+              </p>
+            </div>
+            <nav className="flex flex-col gap-1 p-3" aria-label="Áreas principais">
               {PRIMARY_NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 const active = activeTab === item.id;
