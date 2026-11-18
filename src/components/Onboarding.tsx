@@ -239,7 +239,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
           <>
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
               Escolha quantas áreas quiser. Elas aparecem em destaque no início do registro, mas
-              não escondem nenhum pilar — e podem mudar depois em Categorias.
+              não escondem nenhum pilar — e podem mudar depois em Ajustes.
             </p>
             <ul className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {FOCUS_AREA_OPTIONS.map((option) => {
@@ -278,7 +278,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
               Pacotes são atalhos: ao tocar, eles ativam itens que já existem no catálogo, sem criar
               categoria nova nem mudar registros antigos. Você pode aplicar mais de um agora e
-              ajustar tudo depois em Categorias.
+              ajustar tudo depois em Ajustes.
             </p>
             {offeredPackages.length === 0 ? (
               <div className="mt-5 rounded-xl border p-4 text-sm" style={cardStyle}>
@@ -320,7 +320,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
           <>
             <p className="mt-2 text-base" style={{ color: 'var(--text-secondary)' }}>
               Ajustes de ritmo e conforto. Tema e movimento ficam no topo do app; a profundidade
-              também pode ser alterada depois na aba Categorias.
+              também pode ser alterada depois na aba Ajustes.
             </p>
 
             <div className="mt-5 space-y-5">
